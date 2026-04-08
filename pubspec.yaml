@@ -1,0 +1,90 @@
+name: crusader
+description: "The sleek, modern email client that finally feels good to use."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # --- State Management ---
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # --- Navigation ---
+  go_router: ^14.8.1
+
+  # --- Email Protocol ---
+  enough_mail: ^2.1.6
+
+  # --- Local Database ---
+  drift: ^2.22.1
+  sqlite3_flutter_libs: ^0.5.28
+  path_provider: ^2.1.5
+  path: ^1.9.1
+
+  # --- Secure Storage ---
+  flutter_secure_storage: ^9.2.4
+
+  # --- HTML Rendering ---
+  flutter_widget_from_html: ^0.15.2
+
+  # --- Animations ---
+  flutter_animate: ^4.5.2
+
+  # --- OAuth / Auth ---
+  google_sign_in: ^6.3.0
+  flutter_appauth: ^7.0.1
+  http: ^1.4.0
+  url_launcher: ^6.3.1
+
+  # --- Utilities ---
+  uuid: ^4.5.1
+  intl: ^0.20.2
+  cupertino_icons: ^1.0.8
+  google_fonts: ^6.2.1
+  shared_preferences: ^2.5.3
+  crypto: ^3.0.7
+  open_file: ^3.5.8
+  local_notifier: ^0.1.6
+  file_picker: ^11.0.2
+  system_tray: ^0.1.1
+  flutter_quill: ^11.5.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  mocktail: ^1.0.4
+  riverpod_generator: ^2.6.3
+  build_runner: ^2.4.14
+  drift_dev: ^2.22.1
+  custom_lint: ^0.7.5
+  riverpod_lint: ^2.6.3
+  flutter_launcher_icons: ^0.14.3
+  flutter_native_splash: ^2.4.4
+
+flutter:
+  uses-material-design: true
+
+# --- App Icon Configuration ---
+flutter_launcher_icons:
+  image_path: "assets/icon/app_icon.png"
+  windows:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+    icon_size: 48
+  ios:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+
+# --- Splash Screen Configuration ---
+flutter_native_splash:
+  color: "#0A0A0E"
+  image: "assets/icon/app_icon.png"
+  color_dark: "#0A0A0E"
+  image_dark: "assets/icon/app_icon.png"
+  ios: true
