@@ -20,13 +20,18 @@ import 'desktop_oauth_service.dart';
 // OAuth Configuration
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// OAuth client IDs — replace with your own registered app credentials.
-/// These are placeholders and MUST be configured before real auth works.
+/// OAuth configuration.
+///
+/// Client IDs and secrets are injected at compile time via `--dart-define-from-file`.
+/// Run: `flutter run --dart-define-from-file=.env.json`
+///
+/// See `.env.json.example` for the required keys.
 abstract final class OAuthConfig {
   // ── Gmail ──
-  static const String gmailClientId =
-      '867081363742-lbef895cghuoh2d72id90l07isjchrp7.apps.googleusercontent.com';
-  static const String gmailClientSecret = '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';
+  static const String gmailClientId = String.fromEnvironment('GMAIL_CLIENT_ID');
+  static const String gmailClientSecret = String.fromEnvironment(
+    'GMAIL_CLIENT_SECRET',
+  );
   static const String gmailRedirectUri =
       'com.crusader.app:/oauth2redirect/google';
   static const List<String> gmailScopes = [
@@ -43,7 +48,9 @@ abstract final class OAuthConfig {
       'https://accounts.google.com/.well-known/openid-configuration';
 
   // ── Outlook / Microsoft 365 ──
-  static const String outlookClientId = '01c067ad-661e-4353-a523-c53a39495e39';
+  static const String outlookClientId = String.fromEnvironment(
+    'OUTLOOK_CLIENT_ID',
+  );
   static const String outlookRedirectUri =
       'com.crusader.app://oauth2redirect/microsoft';
   static const List<String> outlookScopes = [
