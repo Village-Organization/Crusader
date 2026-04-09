@@ -3,6 +3,8 @@
 /// Manages dark/light mode, accent color, and font family with persistence.
 library;
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -278,6 +280,7 @@ class FontFamilyNotifier extends StateNotifier<String> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const _kSidebarCollapsedKey = 'crusader_sidebar_collapsed';
+const _kSectionCollapseKey = 'crusader_section_collapse';
 
 /// Provides whether the sidebar is in collapsed (icon rail) mode.
 /// Defaults to `true` (collapsed) for the sleek Linear/Arc look.
@@ -309,5 +312,63 @@ class SidebarCollapsedNotifier extends StateNotifier<bool> {
     state = collapsed;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kSidebarCollapsedKey, collapsed);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Section Collapse Notifier — persists label/more section state per account
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// State shape: `{ accountId: { "labels": true, "system": false } }`
+/// Maps account IDs to per-section expanded booleans.
+final sectionCollapseProvider =
+    StateNotifierProvider<
+      SectionCollapseNotifier,
+      Map<String, Map<String, bool>>
+    >((ref) => SectionCollapseNotifier());
+
+class SectionCollapseNotifier
+    extends StateNotifier<Map<String, Map<String, bool>>> {
+  SectionCollapseNotifier() : super({}) {
+    _loadFromPrefs();
+  }
+
+  Future<void> _loadFromPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kSectionCollapseKey);
+    if (raw != null) {
+      try {
+        final decoded = jsonDecode(raw) as Map<String, dynamic>;
+        final result = <String, Map<String, bool>>{};
+        for (final entry in decoded.entries) {
+          final inner = entry.value as Map<String, dynamic>;
+          result[entry.key] = inner.map((k, v) => MapEntry(k, v as bool));
+        }
+        state = result;
+      } catch (_) {
+        // Corrupted data — start fresh.
+      }
+    }
+  }
+
+  Future<void> _persist() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kSectionCollapseKey, jsonEncode(state));
+  }
+
+  /// Whether a section is expanded for a given account.
+  /// Defaults: labels = true, system = false.
+  bool isSectionExpanded(String accountId, String section) {
+    final defaults = {'labels': true, 'system': false};
+    return state[accountId]?[section] ?? defaults[section] ?? true;
+  }
+
+  /// Toggle a section's expanded state for a given account.
+  Future<void> toggleSection(String accountId, String section) async {
+    final current = isSectionExpanded(accountId, section);
+    final accountState = Map<String, bool>.from(state[accountId] ?? {});
+    accountState[section] = !current;
+    state = {...state, accountId: accountState};
+    await _persist();
   }
 }

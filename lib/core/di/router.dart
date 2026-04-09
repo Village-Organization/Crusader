@@ -3,6 +3,12 @@
 /// go_router configuration with typed routes.
 /// Shell route wraps the main layout (sidebar + content on desktop,
 /// bottom nav on mobile).
+///
+/// All routes use polished transitions:
+/// - Sidebar nav routes: quick crossfade (no jarring hard cuts)
+/// - Compose: slide-up + fade (modal feel)
+/// - Thread detail: slide-right + fade (drill-in feel)
+/// - Add account: slide-up + fade (overlay feel)
 library;
 
 import 'package:flutter/material.dart';
@@ -30,6 +36,91 @@ abstract final class CrusaderRoutes {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Transition Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Quick crossfade for sidebar navigation routes (Inbox, Search, Settings).
+/// Keeps the shell stable while content swaps smoothly.
+CustomTransitionPage<void> _crossfadePage(Widget child) {
+  return CustomTransitionPage(
+    child: child,
+    transitionDuration: const Duration(milliseconds: 200),
+    reverseTransitionDuration: const Duration(milliseconds: 150),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      return FadeTransition(
+        opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+        child: child,
+      );
+    },
+  );
+}
+
+/// Slide-up + fade for modal-like routes (Compose).
+CustomTransitionPage<void> _slideUpPage(Widget child) {
+  return CustomTransitionPage(
+    child: child,
+    transitionDuration: const Duration(milliseconds: 300),
+    reverseTransitionDuration: const Duration(milliseconds: 200),
+    transitionsBuilder: (context, animation, _, child) {
+      return SlideTransition(
+        position: Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero)
+            .animate(
+              CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+            ),
+        child: FadeTransition(
+          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          child: child,
+        ),
+      );
+    },
+  );
+}
+
+/// Slide-right + fade for drill-in routes (Thread Detail).
+CustomTransitionPage<void> _slideRightPage(Widget child) {
+  return CustomTransitionPage(
+    child: child,
+    transitionDuration: const Duration(milliseconds: 280),
+    reverseTransitionDuration: const Duration(milliseconds: 200),
+    transitionsBuilder: (context, animation, _, child) {
+      return FadeTransition(
+        opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+        child: SlideTransition(
+          position:
+              Tween<Offset>(
+                begin: const Offset(0.03, 0),
+                end: Offset.zero,
+              ).animate(
+                CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+              ),
+          child: child,
+        ),
+      );
+    },
+  );
+}
+
+/// Scale-fade for overlay routes (Add Account).
+CustomTransitionPage<void> _scaleFadePage(Widget child) {
+  return CustomTransitionPage(
+    child: child,
+    transitionDuration: const Duration(milliseconds: 300),
+    reverseTransitionDuration: const Duration(milliseconds: 200),
+    transitionsBuilder: (context, animation, _, child) {
+      return FadeTransition(
+        opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.97, end: 1.0).animate(
+            CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+          ),
+          child: child,
+        ),
+      );
+    },
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Router Configuration
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -39,27 +130,7 @@ final appRouter = GoRouter(
     // ── Add Account (full-screen, outside shell) ──
     GoRoute(
       path: CrusaderRoutes.addAccount,
-      pageBuilder: (context, state) => CustomTransitionPage(
-        child: const AddAccountScreen(),
-        transitionsBuilder: (context, animation, _, child) {
-          return FadeTransition(
-            opacity: CurvedAnimation(
-              parent: animation,
-              curve: Curves.easeOut,
-            ),
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(0, 0.04),
-                end: Offset.zero,
-              ).animate(CurvedAnimation(
-                parent: animation,
-                curve: Curves.easeOutCubic,
-              )),
-              child: child,
-            ),
-          );
-        },
-      ),
+      pageBuilder: (context, state) => _scaleFadePage(const AddAccountScreen()),
     ),
 
     // ── Thread Detail (full-screen, outside shell) ──
@@ -67,27 +138,7 @@ final appRouter = GoRouter(
       path: '/thread/:threadId',
       pageBuilder: (context, state) {
         final threadId = state.pathParameters['threadId']!;
-        return CustomTransitionPage(
-          child: ThreadDetailScreen(threadId: threadId),
-          transitionsBuilder: (context, animation, _, child) {
-            return FadeTransition(
-              opacity: CurvedAnimation(
-                parent: animation,
-                curve: Curves.easeOut,
-              ),
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0.03, 0),
-                  end: Offset.zero,
-                ).animate(CurvedAnimation(
-                  parent: animation,
-                  curve: Curves.easeOutCubic,
-                )),
-                child: child,
-              ),
-            );
-          },
-        );
+        return _slideRightPage(ThreadDetailScreen(threadId: threadId));
       },
     ),
 
@@ -97,42 +148,20 @@ final appRouter = GoRouter(
       routes: [
         GoRoute(
           path: CrusaderRoutes.inbox,
-          pageBuilder: (context, state) => const NoTransitionPage(
-            child: InboxScreen(),
-          ),
+          pageBuilder: (context, state) => _crossfadePage(const InboxScreen()),
         ),
         GoRoute(
           path: CrusaderRoutes.compose,
-          pageBuilder: (context, state) => CustomTransitionPage(
-            child: const ComposeScreen(),
-            transitionsBuilder: (context, animation, _, child) {
-              return SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0, 0.08),
-                  end: Offset.zero,
-                ).animate(CurvedAnimation(
-                  parent: animation,
-                  curve: Curves.easeOutCubic,
-                )),
-                child: FadeTransition(
-                  opacity: animation,
-                  child: child,
-                ),
-              );
-            },
-          ),
+          pageBuilder: (context, state) => _slideUpPage(const ComposeScreen()),
         ),
         GoRoute(
           path: CrusaderRoutes.search,
-          pageBuilder: (context, state) => const NoTransitionPage(
-            child: SearchScreen(),
-          ),
+          pageBuilder: (context, state) => _crossfadePage(const SearchScreen()),
         ),
         GoRoute(
           path: CrusaderRoutes.settings,
-          pageBuilder: (context, state) => const NoTransitionPage(
-            child: SettingsScreen(),
-          ),
+          pageBuilder: (context, state) =>
+              _crossfadePage(const SettingsScreen()),
         ),
       ],
     ),

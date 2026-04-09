@@ -43,7 +43,7 @@ abstract final class OAuthConfig {
       'https://accounts.google.com/.well-known/openid-configuration';
 
   // ── Outlook / Microsoft 365 ──
-  static const String outlookClientId = 'YOUR_OUTLOOK_CLIENT_ID';
+  static const String outlookClientId = '01c067ad-661e-4353-a523-c53a39495e39';
   static const String outlookRedirectUri =
       'com.crusader.app://oauth2redirect/microsoft';
   static const List<String> outlookScopes = [
@@ -66,8 +66,8 @@ abstract final class OAuthConfig {
 
 class OAuthService {
   OAuthService({FlutterAppAuth? appAuth})
-      : _appAuth = appAuth ?? const FlutterAppAuth(),
-        _desktopOAuth = DesktopOAuthService();
+    : _appAuth = appAuth ?? const FlutterAppAuth(),
+      _desktopOAuth = DesktopOAuthService();
 
   final FlutterAppAuth _appAuth;
   final DesktopOAuthService _desktopOAuth;
@@ -116,7 +116,8 @@ class OAuthService {
       final token = OAuthToken(
         accessToken: result.accessToken!,
         refreshToken: result.refreshToken,
-        expiresAt: result.accessTokenExpirationDateTime ??
+        expiresAt:
+            result.accessTokenExpirationDateTime ??
             DateTime.now().add(const Duration(hours: 1)),
         idToken: result.idToken,
         scopes: config.scopes,
@@ -156,7 +157,8 @@ class OAuthService {
       return OAuthToken(
         accessToken: result.accessToken!,
         refreshToken: result.refreshToken ?? refreshToken,
-        expiresAt: result.accessTokenExpirationDateTime ??
+        expiresAt:
+            result.accessTokenExpirationDateTime ??
             DateTime.now().add(const Duration(hours: 1)),
         idToken: result.idToken,
         scopes: config.scopes,
@@ -173,10 +175,13 @@ class OAuthService {
     String accessToken,
   ) async {
     final uri = switch (provider) {
-      EmailProvider.gmail =>
-        Uri.parse('https://www.googleapis.com/oauth2/v3/userinfo'),
-      EmailProvider.outlook =>
-        Uri.parse('https://graph.microsoft.com/v1.0/me'),
+      EmailProvider.gmail => Uri.parse(
+        'https://www.googleapis.com/oauth2/v3/userinfo',
+      ),
+      EmailProvider.outlook => Uri.parse('https://graph.microsoft.com/v1.0/me'),
+      EmailProvider.custom => throw OAuthException(
+        'OAuth not supported for custom IMAP accounts',
+      ),
     };
 
     try {
@@ -193,16 +198,20 @@ class OAuthService {
 
       return switch (provider) {
         EmailProvider.gmail => OAuthUserInfo(
-            email: data['email'] as String? ?? 'unknown@gmail.com',
-            displayName: data['name'] as String? ?? 'Gmail User',
-            avatarUrl: data['picture'] as String?,
-          ),
+          email: data['email'] as String? ?? 'unknown@gmail.com',
+          displayName: data['name'] as String? ?? 'Gmail User',
+          avatarUrl: data['picture'] as String?,
+        ),
         EmailProvider.outlook => OAuthUserInfo(
-            email: data['mail'] as String? ??
-                data['userPrincipalName'] as String? ??
-                'unknown@outlook.com',
-            displayName: data['displayName'] as String? ?? 'Outlook User',
-          ),
+          email:
+              data['mail'] as String? ??
+              data['userPrincipalName'] as String? ??
+              'unknown@outlook.com',
+          displayName: data['displayName'] as String? ?? 'Outlook User',
+        ),
+        EmailProvider.custom => throw OAuthException(
+          'OAuth not supported for custom IMAP accounts',
+        ),
       };
     } catch (_) {
       return OAuthUserInfo(email: 'unknown@email.com', displayName: 'User');
@@ -212,19 +221,22 @@ class OAuthService {
   _OAuthProviderConfig _configFor(EmailProvider provider) {
     return switch (provider) {
       EmailProvider.gmail => const _OAuthProviderConfig(
-          clientId: OAuthConfig.gmailClientId,
-          redirectUri: OAuthConfig.gmailRedirectUri,
-          scopes: OAuthConfig.gmailScopes,
-          authEndpoint: OAuthConfig.gmailAuthEndpoint,
-          tokenEndpoint: OAuthConfig.gmailTokenEndpoint,
-        ),
+        clientId: OAuthConfig.gmailClientId,
+        redirectUri: OAuthConfig.gmailRedirectUri,
+        scopes: OAuthConfig.gmailScopes,
+        authEndpoint: OAuthConfig.gmailAuthEndpoint,
+        tokenEndpoint: OAuthConfig.gmailTokenEndpoint,
+      ),
       EmailProvider.outlook => const _OAuthProviderConfig(
-          clientId: OAuthConfig.outlookClientId,
-          redirectUri: OAuthConfig.outlookRedirectUri,
-          scopes: OAuthConfig.outlookScopes,
-          authEndpoint: OAuthConfig.outlookAuthEndpoint,
-          tokenEndpoint: OAuthConfig.outlookTokenEndpoint,
-        ),
+        clientId: OAuthConfig.outlookClientId,
+        redirectUri: OAuthConfig.outlookRedirectUri,
+        scopes: OAuthConfig.outlookScopes,
+        authEndpoint: OAuthConfig.outlookAuthEndpoint,
+        tokenEndpoint: OAuthConfig.outlookTokenEndpoint,
+      ),
+      EmailProvider.custom => throw OAuthException(
+        'OAuth not supported for custom IMAP accounts',
+      ),
     };
   }
 }

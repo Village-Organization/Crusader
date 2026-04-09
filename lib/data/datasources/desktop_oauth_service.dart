@@ -55,8 +55,9 @@ class DesktopOAuthService {
 
     try {
       // Wait for the redirect (timeout after 5 minutes)
-      final code = await _waitForAuthCode(server)
-          .timeout(const Duration(minutes: 5));
+      final code = await _waitForAuthCode(
+        server,
+      ).timeout(const Duration(minutes: 5));
 
       // Exchange auth code for tokens
       final tokenResponse = await _exchangeCode(
@@ -91,12 +92,13 @@ class DesktopOAuthService {
       final response = await http.post(
         Uri.parse(config.tokenEndpoint),
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-      body: {
-        'client_id': config.clientId,
-        if (config.clientSecret != null) 'client_secret': config.clientSecret!,
-        'grant_type': 'refresh_token',
-        'refresh_token': refreshToken,
-      },
+        body: {
+          'client_id': config.clientId,
+          if (config.clientSecret != null)
+            'client_secret': config.clientSecret!,
+          'grant_type': 'refresh_token',
+          'refresh_token': refreshToken,
+        },
       );
 
       if (response.statusCode != 200) {
@@ -205,10 +207,13 @@ class DesktopOAuthService {
     String accessToken,
   ) async {
     final uri = switch (provider) {
-      EmailProvider.gmail =>
-        Uri.parse('https://www.googleapis.com/oauth2/v3/userinfo'),
-      EmailProvider.outlook =>
-        Uri.parse('https://graph.microsoft.com/v1.0/me'),
+      EmailProvider.gmail => Uri.parse(
+        'https://www.googleapis.com/oauth2/v3/userinfo',
+      ),
+      EmailProvider.outlook => Uri.parse('https://graph.microsoft.com/v1.0/me'),
+      EmailProvider.custom => throw OAuthException(
+        'OAuth not supported for custom IMAP accounts',
+      ),
     };
 
     try {
@@ -225,16 +230,20 @@ class DesktopOAuthService {
 
       return switch (provider) {
         EmailProvider.gmail => OAuthUserInfo(
-            email: data['email'] as String? ?? 'unknown@gmail.com',
-            displayName: data['name'] as String? ?? 'Gmail User',
-            avatarUrl: data['picture'] as String?,
-          ),
+          email: data['email'] as String? ?? 'unknown@gmail.com',
+          displayName: data['name'] as String? ?? 'Gmail User',
+          avatarUrl: data['picture'] as String?,
+        ),
         EmailProvider.outlook => OAuthUserInfo(
-            email: data['mail'] as String? ??
-                data['userPrincipalName'] as String? ??
-                'unknown@outlook.com',
-            displayName: data['displayName'] as String? ?? 'Outlook User',
-          ),
+          email:
+              data['mail'] as String? ??
+              data['userPrincipalName'] as String? ??
+              'unknown@outlook.com',
+          displayName: data['displayName'] as String? ?? 'Outlook User',
+        ),
+        EmailProvider.custom => throw OAuthException(
+          'OAuth not supported for custom IMAP accounts',
+        ),
       };
     } catch (_) {
       return OAuthUserInfo(email: 'unknown@email.com', displayName: 'User');
@@ -248,10 +257,7 @@ class DesktopOAuthService {
   /// truncating query-string parameters like `response_type`.
   Future<void> _openBrowser(String url) async {
     if (Platform.isWindows) {
-      await Process.run(
-        'rundll32',
-        ['url.dll,FileProtocolHandler', url],
-      );
+      await Process.run('rundll32', ['url.dll,FileProtocolHandler', url]);
     } else if (Platform.isMacOS) {
       await Process.run('open', [url]);
     } else if (Platform.isLinux) {
@@ -266,8 +272,10 @@ class DesktopOAuthService {
     const charset =
         'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
     final random = Random.secure();
-    return List.generate(128, (_) => charset[random.nextInt(charset.length)])
-        .join();
+    return List.generate(
+      128,
+      (_) => charset[random.nextInt(charset.length)],
+    ).join();
   }
 
   /// Generate S256 code challenge from verifier.
@@ -280,18 +288,21 @@ class DesktopOAuthService {
   _DesktopOAuthConfig _configFor(EmailProvider provider) {
     return switch (provider) {
       EmailProvider.gmail => _DesktopOAuthConfig(
-          clientId: OAuthConfig.gmailClientId,
-          clientSecret: OAuthConfig.gmailClientSecret,
-          scopes: OAuthConfig.gmailScopes,
-          authEndpoint: OAuthConfig.gmailAuthEndpoint,
-          tokenEndpoint: OAuthConfig.gmailTokenEndpoint,
-        ),
+        clientId: OAuthConfig.gmailClientId,
+        clientSecret: OAuthConfig.gmailClientSecret,
+        scopes: OAuthConfig.gmailScopes,
+        authEndpoint: OAuthConfig.gmailAuthEndpoint,
+        tokenEndpoint: OAuthConfig.gmailTokenEndpoint,
+      ),
       EmailProvider.outlook => _DesktopOAuthConfig(
-          clientId: OAuthConfig.outlookClientId,
-          scopes: OAuthConfig.outlookScopes,
-          authEndpoint: OAuthConfig.outlookAuthEndpoint,
-          tokenEndpoint: OAuthConfig.outlookTokenEndpoint,
-        ),
+        clientId: OAuthConfig.outlookClientId,
+        scopes: OAuthConfig.outlookScopes,
+        authEndpoint: OAuthConfig.outlookAuthEndpoint,
+        tokenEndpoint: OAuthConfig.outlookTokenEndpoint,
+      ),
+      EmailProvider.custom => throw OAuthException(
+        'OAuth not supported for custom IMAP accounts',
+      ),
     };
   }
 
@@ -316,7 +327,8 @@ class DesktopOAuthService {
 </html>
 ''';
 
-  String _errorPage(String error) => '''
+  String _errorPage(String error) =>
+      '''
 <!DOCTYPE html>
 <html>
 <head><title>Crusader — Error</title>

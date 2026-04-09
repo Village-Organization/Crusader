@@ -304,20 +304,19 @@ class SettingsScreen extends ConsumerWidget {
                       Row(
                         children: [
                           Container(
-                            width: 40,
-                            height: 40,
+                            width: 44,
+                            height: 44,
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(10),
-                              gradient: LinearGradient(
-                                colors: [accents.primary, accents.secondary],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
+                              color: CrusaderBlacks.deepBlack,
                             ),
-                            child: const Icon(
-                              Icons.shield_rounded,
-                              color: Colors.white,
-                              size: 20,
+                            clipBehavior: Clip.antiAlias,
+                            child: Padding(
+                              padding: const EdgeInsets.all(2),
+                              child: Image.asset(
+                                'assets/icon/app_icon_transparent.png',
+                                filterQuality: FilterQuality.medium,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 14),

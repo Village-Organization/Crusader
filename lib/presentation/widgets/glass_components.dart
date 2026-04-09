@@ -72,20 +72,26 @@ class _GlassCardState extends State<GlassCard> {
             color: _isHovered
                 ? glass.panelColor.withValues(alpha: 0.15)
                 : widget.isSelected
-                    ? glow.withValues(alpha: 0.06)
-                    : glass.panelColor,
+                ? glow.withValues(alpha: 0.06)
+                : glass.panelColor,
             border: Border.all(
               color: _isHovered
                   ? glow.withValues(alpha: 0.25)
                   : widget.isSelected
-                      ? glow.withValues(alpha: 0.2)
-                      : glass.panelBorderColor,
+                  ? glow.withValues(alpha: 0.2)
+                  : glass.panelBorderColor,
               width: glass.borderWidth,
             ),
             boxShadow: [
-              if (_isHovered || widget.isSelected)
+              if (_isHovered)
                 BoxShadow(
-                  color: glow.withValues(alpha: 0.08),
+                  color: glow.withValues(alpha: 0.18),
+                  blurRadius: 24,
+                  spreadRadius: -2,
+                )
+              else if (widget.isSelected)
+                BoxShadow(
+                  color: glow.withValues(alpha: 0.10),
                   blurRadius: 16,
                   spreadRadius: -2,
                 ),
@@ -155,14 +161,14 @@ class _GlassChipState extends State<GlassChip> {
             color: widget.isActive
                 ? color.withValues(alpha: 0.12)
                 : _isHovered
-                    ? CrusaderGrays.border.withValues(alpha: 0.5)
-                    : CrusaderGrays.border.withValues(alpha: 0.25),
+                ? CrusaderGrays.border.withValues(alpha: 0.5)
+                : CrusaderGrays.border.withValues(alpha: 0.25),
             border: Border.all(
               color: widget.isActive
                   ? color.withValues(alpha: 0.3)
                   : _isHovered
-                      ? CrusaderGrays.border.withValues(alpha: 0.7)
-                      : Colors.transparent,
+                  ? CrusaderGrays.border.withValues(alpha: 0.7)
+                  : Colors.transparent,
               width: 1,
             ),
           ),
@@ -181,8 +187,9 @@ class _GlassChipState extends State<GlassChip> {
                 widget.label,
                 style: textTheme.labelMedium?.copyWith(
                   color: widget.isActive ? color : CrusaderGrays.secondary,
-                  fontWeight:
-                      widget.isActive ? FontWeight.w600 : FontWeight.w400,
+                  fontWeight: widget.isActive
+                      ? FontWeight.w600
+                      : FontWeight.w400,
                 ),
               ),
               if (widget.badge != null && widget.badge! > 0) ...[
@@ -409,14 +416,14 @@ class ShimmerSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: isCircle ? height : width,
-      height: height,
-      decoration: BoxDecoration(
-        borderRadius: isCircle ? null : BorderRadius.circular(borderRadius),
-        shape: isCircle ? BoxShape.circle : BoxShape.rectangle,
-        color: CrusaderGrays.border.withValues(alpha: 0.4),
-      ),
-    )
+          width: isCircle ? height : width,
+          height: height,
+          decoration: BoxDecoration(
+            borderRadius: isCircle ? null : BorderRadius.circular(borderRadius),
+            shape: isCircle ? BoxShape.circle : BoxShape.rectangle,
+            color: CrusaderGrays.border.withValues(alpha: 0.4),
+          ),
+        )
         .animate(onPlay: (controller) => controller.repeat())
         .shimmer(
           duration: 1200.ms,
@@ -461,10 +468,7 @@ class ThreadTileSkeleton extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  ShimmerSkeleton(
-                    width: 180 + (index % 2) * 60,
-                    height: 12,
-                  ),
+                  ShimmerSkeleton(width: 180 + (index % 2) * 60, height: 12),
                   const SizedBox(height: 6),
                   const ShimmerSkeleton(height: 10),
                 ],
@@ -482,10 +486,7 @@ class ThreadTileSkeleton extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class KeyboardShortcutBadge extends StatelessWidget {
-  const KeyboardShortcutBadge({
-    super.key,
-    required this.shortcut,
-  });
+  const KeyboardShortcutBadge({super.key, required this.shortcut});
 
   final String shortcut;
 
@@ -569,7 +570,7 @@ class _NeonGlowBorderState extends State<NeonGlowBorder>
       builder: (context, child) {
         final glow = widget.animate
             ? widget.glowIntensity *
-                (0.5 + 0.5 * math.sin(_controller.value * math.pi))
+                  (0.5 + 0.5 * math.sin(_controller.value * math.pi))
             : widget.glowIntensity;
         return Container(
           decoration: BoxDecoration(
@@ -658,10 +659,7 @@ class SenderAvatar extends StatelessWidget {
         shape: BoxShape.circle,
         gradient: avatarBytes == null
             ? LinearGradient(
-                colors: [
-                  c.withValues(alpha: 0.2),
-                  c.withValues(alpha: 0.08),
-                ],
+                colors: [c.withValues(alpha: 0.2), c.withValues(alpha: 0.08)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               )

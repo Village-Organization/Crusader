@@ -1,6 +1,6 @@
 /// Crusader — SMTP Email Service
 ///
-/// Sends emails via SMTP with OAuth2 XOAUTH2 authentication.
+/// Sends emails via SMTP with OAuth2 XOAUTH2 or password/PLAIN authentication.
 /// Supports plain text, HTML, replies, and forwards.
 ///
 /// This is the raw SMTP data source — no caching, no business logic.
@@ -23,7 +23,7 @@ class SmtpService {
 
   // ── Connection ────────────────────────────────────────────────────────
 
-  /// Connect and authenticate to an SMTP server with OAuth2.
+  /// Connect and authenticate to an SMTP server (OAuth2 or password).
   Future<smtp.SmtpClient> connect({
     required EmailAccount account,
     required String accessToken,
@@ -54,12 +54,20 @@ class SmtpService {
         await client.startTls();
       }
 
-      // Authenticate with OAuth2 XOAUTH2.
-      await client.authenticate(
-        account.email,
-        accessToken,
-        smtp.AuthMechanism.xoauth2,
-      );
+      // Authenticate: password accounts use PLAIN, OAuth accounts use XOAUTH2.
+      if (account.authMethod == AuthMethod.password) {
+        await client.authenticate(
+          account.email,
+          accessToken,
+          smtp.AuthMechanism.plain,
+        );
+      } else {
+        await client.authenticate(
+          account.email,
+          accessToken,
+          smtp.AuthMechanism.xoauth2,
+        );
+      }
 
       _clients[account.id] = client;
       return client;
@@ -101,13 +109,14 @@ class SmtpService {
     final client = _requireClient(accountId);
 
     try {
-      final builder = smtp.MessageBuilder.prepareMultipartAlternativeMessage(
-        plainText: textPlain ?? _stripHtml(textHtml ?? ''),
-        htmlText: textHtml,
-      )
-        ..from = [_toMailAddress(from)]
-        ..to = to.map(_toMailAddress).toList()
-        ..subject = subject;
+      final builder =
+          smtp.MessageBuilder.prepareMultipartAlternativeMessage(
+              plainText: textPlain ?? _stripHtml(textHtml ?? ''),
+              htmlText: textHtml,
+            )
+            ..from = [_toMailAddress(from)]
+            ..to = to.map(_toMailAddress).toList()
+            ..subject = subject;
 
       if (cc.isNotEmpty) {
         builder.cc = cc.map(_toMailAddress).toList();

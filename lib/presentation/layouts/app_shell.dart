@@ -15,7 +15,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -82,7 +81,48 @@ IconData _mailboxIcon(Mailbox mailbox) {
   if (mailbox.isTrash) return Icons.delete_outline_rounded;
   if (mailbox.isArchive) return Icons.archive_outlined;
   if (mailbox.isJunk) return Icons.report_gmailerrorred_outlined;
+  if (mailbox.isFlagged) return Icons.star_rounded;
+  if (mailbox.role == MailboxRole.all) return Icons.all_inbox_rounded;
   return Icons.folder_outlined;
+}
+
+/// Role-based sort priority. Lower = higher in the list.
+int _mailboxSortPriority(Mailbox mailbox) {
+  switch (mailbox.role) {
+    case MailboxRole.inbox:
+      return 0;
+    case MailboxRole.flagged:
+      return 1;
+    case MailboxRole.sent:
+      return 2;
+    case MailboxRole.drafts:
+      return 3;
+    case MailboxRole.archive:
+      return 4;
+    case MailboxRole.spam:
+      return 5;
+    case MailboxRole.trash:
+      return 6;
+    case MailboxRole.all:
+      return 100; // push to bottom
+    case MailboxRole.custom:
+      return 50; // between system and All Mail
+  }
+}
+
+/// Whether a mailbox is a "core" system folder shown at the top level.
+bool _isCoreMailbox(Mailbox mailbox) {
+  return mailbox.role != MailboxRole.custom && mailbox.role != MailboxRole.all;
+}
+
+/// Whether a mailbox is a user-created label / custom folder.
+bool _isLabelMailbox(Mailbox mailbox) {
+  return mailbox.role == MailboxRole.custom;
+}
+
+/// Whether a mailbox is a low-priority system folder (e.g. All Mail).
+bool _isSystemMailbox(Mailbox mailbox) {
+  return mailbox.role == MailboxRole.all;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -99,345 +139,263 @@ class AppShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final shell = _isDesktop
+    return _isDesktop
         ? _DesktopShell(child: child)
-        : _MobileShell(child: child) as Widget;
-
-    // Wrap with global keyboard shortcuts (desktop only).
-    if (_isDesktop) {
-      return _GlobalShortcutHandler(child: shell);
-    }
-    return shell;
+        : _MobileShell(child: child);
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Global Keyboard Shortcut Handler
-// ─────────────────────────────────────────────────────────────────────────────
+/// Shows the keyboard shortcuts dialog.
+void showKeyboardShortcuts(BuildContext context) {
+  final textTheme = Theme.of(context).textTheme;
+  final glass = Theme.of(context).extension<CrusaderGlassTheme>()!;
+  final accents = Theme.of(context).extension<CrusaderAccentTheme>()!;
 
-/// Handles global keyboard shortcuts across the app.
-///
-/// Single-key shortcuts:
-/// - `C` or `Ctrl+N` — Compose new email
-/// - `/` or `Ctrl+K` — Focus search
-/// - `?` — Show keyboard shortcuts overlay
-///
-/// Two-key sequences (Vim/Superhuman style):
-/// - `G` then `I` — Go to Inbox
-/// - `G` then `S` — Go to Settings
-class _GlobalShortcutHandler extends ConsumerStatefulWidget {
-  const _GlobalShortcutHandler({required this.child});
-
-  final Widget child;
-
-  @override
-  ConsumerState<_GlobalShortcutHandler> createState() =>
-      _GlobalShortcutHandlerState();
-}
-
-class _GlobalShortcutHandlerState
-    extends ConsumerState<_GlobalShortcutHandler> {
-  /// Whether we're in a "G" prefix mode (waiting for second key).
-  bool _gPrefixActive = false;
-  Timer? _gPrefixTimer;
-
-  @override
-  void dispose() {
-    _gPrefixTimer?.cancel();
-    super.dispose();
-  }
-
-  void _resetGPrefix() {
-    _gPrefixTimer?.cancel();
-    setState(() => _gPrefixActive = false);
-  }
-
-  void _activateGPrefix() {
-    setState(() => _gPrefixActive = true);
-    // Auto-reset after 1s if no second key pressed.
-    _gPrefixTimer?.cancel();
-    _gPrefixTimer = Timer(const Duration(seconds: 1), _resetGPrefix);
-  }
-
-  bool _isModifierPressed(KeyEvent event) {
-    return HardwareKeyboard.instance.isControlPressed ||
-        HardwareKeyboard.instance.isMetaPressed ||
-        HardwareKeyboard.instance.isAltPressed;
-  }
-
-  bool _isControlOnly(KeyEvent event) {
-    return HardwareKeyboard.instance.isControlPressed &&
-        !HardwareKeyboard.instance.isMetaPressed &&
-        !HardwareKeyboard.instance.isAltPressed;
-  }
-
-  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent) return KeyEventResult.ignored;
-
-    // Check if a text input field has focus.
-    final focusedWidget = FocusManager.instance.primaryFocus;
-    if (focusedWidget != null) {
-      // Walk up the context tree to see if there's an EditableText ancestor.
-      final context = focusedWidget.context;
-      if (context != null) {
-        bool isEditing = false;
-        context.visitAncestorElements((element) {
-          if (element.widget is EditableText) {
-            isEditing = true;
-            return false;
-          }
-          return true;
-        });
-        if (isEditing) {
-          // Allow Ctrl+K and Ctrl+N even in text fields.
-          if (_isControlOnly(event)) {
-            if (event.logicalKey == LogicalKeyboardKey.keyK) {
-              GoRouter.of(this.context).go(CrusaderRoutes.search);
-              _resetGPrefix();
-              return KeyEventResult.handled;
-            }
-            if (event.logicalKey == LogicalKeyboardKey.keyN) {
-              GoRouter.of(this.context).go(CrusaderRoutes.compose);
-              _resetGPrefix();
-              return KeyEventResult.handled;
-            }
-          }
-          return KeyEventResult.ignored;
-        }
-      }
-    }
-
-    // ── Ctrl+key shortcuts (work everywhere) ──
-    if (_isControlOnly(event)) {
-      if (event.logicalKey == LogicalKeyboardKey.keyN) {
-        GoRouter.of(context).go(CrusaderRoutes.compose);
-        _resetGPrefix();
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.keyK) {
-        GoRouter.of(context).go(CrusaderRoutes.search);
-        _resetGPrefix();
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.keyB) {
-        ref.read(sidebarCollapsedProvider.notifier).toggle();
-        _resetGPrefix();
-        return KeyEventResult.handled;
-      }
-    }
-
-    // ── Don't process single-key shortcuts if modifier is held ──
-    if (_isModifierPressed(event)) return KeyEventResult.ignored;
-
-    // ── Two-key sequences: G-prefix ──
-    if (_gPrefixActive) {
-      _resetGPrefix();
-      if (event.logicalKey == LogicalKeyboardKey.keyI) {
-        GoRouter.of(context).go(CrusaderRoutes.inbox);
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.keyS) {
-        GoRouter.of(context).go(CrusaderRoutes.settings);
-        return KeyEventResult.handled;
-      }
-      return KeyEventResult.ignored;
-    }
-
-    // ── Single-key shortcuts ──
-    if (event.logicalKey == LogicalKeyboardKey.keyG) {
-      _activateGPrefix();
-      return KeyEventResult.handled;
-    }
-
-    if (event.logicalKey == LogicalKeyboardKey.keyC) {
-      GoRouter.of(context).go(CrusaderRoutes.compose);
-      return KeyEventResult.handled;
-    }
-
-    if (event.logicalKey == LogicalKeyboardKey.slash) {
-      GoRouter.of(context).go(CrusaderRoutes.search);
-      return KeyEventResult.handled;
-    }
-
-    if (event.logicalKey == LogicalKeyboardKey.question ||
-        (event.logicalKey == LogicalKeyboardKey.slash &&
-            HardwareKeyboard.instance.isShiftPressed)) {
-      _showShortcutsOverlay(context);
-      return KeyEventResult.handled;
-    }
-
-    return KeyEventResult.ignored;
-  }
-
-  void _showShortcutsOverlay(BuildContext context) {
-    final accents = Theme.of(context).extension<CrusaderAccentTheme>()!;
-    final glass = Theme.of(context).extension<CrusaderGlassTheme>()!;
-
-    showDialog(
-      context: context,
-      barrierColor: Colors.black54,
-      builder: (context) =>
-          _KeyboardShortcutsDialog(accents: accents, glass: glass),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Focus(
-      autofocus: true,
-      onKeyEvent: _handleKeyEvent,
-      child: widget.child,
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Keyboard Shortcuts Dialog
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _KeyboardShortcutsDialog extends StatelessWidget {
-  const _KeyboardShortcutsDialog({required this.accents, required this.glass});
-
-  final CrusaderAccentTheme accents;
-  final CrusaderGlassTheme glass;
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
-    return Dialog(
-          backgroundColor: CrusaderBlacks.elevated,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(
-              color: glass.panelBorderColor,
-              width: glass.borderWidth,
-            ),
-          ),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420, maxHeight: 520),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.keyboard_rounded,
-                        size: 20,
-                        color: accents.primary,
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        'Keyboard Shortcuts',
-                        style: textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const Spacer(),
-                      GestureDetector(
-                        onTap: () => Navigator.of(context).pop(),
-                        child: Icon(
-                          Icons.close_rounded,
-                          size: 18,
-                          color: CrusaderGrays.muted,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  const GlassDivider(),
-                  const SizedBox(height: 16),
-                  Flexible(
-                    child: SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _shortcutSection('Navigation', [
-                            _shortcutRow('G then I', 'Go to Inbox'),
-                            _shortcutRow('G then S', 'Go to Settings'),
-                            _shortcutRow('/', 'Search'),
-                            _shortcutRow('C', 'Compose'),
-                          ], textTheme),
-                          const SizedBox(height: 16),
-                          _shortcutSection('Actions', [
-                            _shortcutRow('Ctrl+N', 'New email'),
-                            _shortcutRow('Ctrl+K', 'Quick search'),
-                            _shortcutRow('Ctrl+B', 'Toggle sidebar'),
-                            _shortcutRow('Ctrl+Enter', 'Send email'),
-                            _shortcutRow('?', 'Show shortcuts'),
-                          ], textTheme),
-                          const SizedBox(height: 16),
-                          _shortcutSection('Inbox', [
-                            _shortcutRow('J / K', 'Next / Previous'),
-                            _shortcutRow('Enter', 'Open thread'),
-                            _shortcutRow('E', 'Archive'),
-                            _shortcutRow('#', 'Delete'),
-                            _shortcutRow('R', 'Reply'),
-                            _shortcutRow('F', 'Forward'),
-                            _shortcutRow('S', 'Star / Flag'),
-                          ], textTheme),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
+  showDialog(
+    context: context,
+    builder: (ctx) {
+      return Dialog(
+            backgroundColor: CrusaderBlacks.elevated,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(
+                color: glass.panelBorderColor,
+                width: glass.borderWidth,
               ),
             ),
-          ),
-        )
-        .animate()
-        .fadeIn(duration: 200.ms)
-        .scale(
-          begin: const Offset(0.95, 0.95),
-          end: const Offset(1, 1),
-          duration: 200.ms,
-          curve: Curves.easeOutCubic,
-        );
-  }
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420, maxHeight: 520),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.keyboard_rounded,
+                          size: 20,
+                          color: accents.primary,
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          'Keyboard Shortcuts',
+                          style: textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const Spacer(),
+                        GestureDetector(
+                          onTap: () => Navigator.of(ctx).pop(),
+                          child: Icon(
+                            Icons.close_rounded,
+                            size: 18,
+                            color: CrusaderGrays.muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    const GlassDivider(),
+                    const SizedBox(height: 16),
+                    Flexible(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _shortcutSection('Navigation', [
+                              _shortcutRow('G then I', 'Go to Inbox'),
+                              _shortcutRow('G then S', 'Go to Settings'),
+                              _shortcutRow('/', 'Search'),
+                              _shortcutRow('C', 'Compose'),
+                            ], textTheme),
+                            const SizedBox(height: 16),
+                            _shortcutSection('Actions', [
+                              _shortcutRow('Ctrl+N', 'New email'),
+                              _shortcutRow('Ctrl+K', 'Command Palette'),
+                              _shortcutRow('Ctrl+B', 'Toggle sidebar'),
+                              _shortcutRow('Ctrl+Enter', 'Send email'),
+                              _shortcutRow('?', 'Show shortcuts'),
+                            ], textTheme),
+                            const SizedBox(height: 16),
+                            _shortcutSection('Inbox', [
+                              _shortcutRow('J / K', 'Next / Previous'),
+                              _shortcutRow('Enter', 'Open thread'),
+                              _shortcutRow('E', 'Archive'),
+                              _shortcutRow('#', 'Delete'),
+                              _shortcutRow('R', 'Reply'),
+                              _shortcutRow('F', 'Forward'),
+                              _shortcutRow('S', 'Star / Flag'),
+                            ], textTheme),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          )
+          .animate()
+          .fadeIn(duration: 200.ms)
+          .scale(
+            begin: const Offset(0.95, 0.95),
+            end: const Offset(1, 1),
+            duration: 200.ms,
+            curve: Curves.easeOutCubic,
+          );
+    },
+  );
+}
 
-  Widget _shortcutSection(
-    String title,
-    List<Widget> rows,
-    TextTheme textTheme,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+Widget _shortcutSection(String title, List<Widget> rows, TextTheme textTheme) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        title.toUpperCase(),
+        style: textTheme.labelSmall?.copyWith(
+          color: CrusaderGrays.muted,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 1.2,
+          fontSize: 10,
+        ),
+      ),
+      const SizedBox(height: 8),
+      ...rows,
+    ],
+  );
+}
+
+Widget _shortcutRow(String shortcut, String description) {
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Row(
       children: [
-        Text(
-          title.toUpperCase(),
-          style: textTheme.labelSmall?.copyWith(
-            color: CrusaderGrays.muted,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.2,
-            fontSize: 10,
+        SizedBox(width: 100, child: KeyboardShortcutBadge(shortcut: shortcut)),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            description,
+            style: TextStyle(color: CrusaderGrays.primary, fontSize: 13),
           ),
         ),
-        const SizedBox(height: 8),
-        ...rows,
       ],
-    );
-  }
+    ),
+  );
+}
 
-  Widget _shortcutRow(String shortcut, String description) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 100,
-            child: KeyboardShortcutBadge(shortcut: shortcut),
+// ─────────────────────────────────────────────────────────────────────────────
+// Ambient Background — subtle accent radial blobs behind everything
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _AmbientBackground extends StatelessWidget {
+  const _AmbientBackground();
+
+  @override
+  Widget build(BuildContext context) {
+    final accents = Theme.of(context).extension<CrusaderAccentTheme>();
+    final primary = accents?.primary ?? CrusaderAccents.cyan;
+    final secondary = accents?.secondary ?? CrusaderAccents.magenta;
+
+    return SizedBox.expand(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: CrusaderBlacks.deepBlack,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              CrusaderBlacks.deepBlack,
+              Color.lerp(CrusaderBlacks.deepBlack, primary, 0.03)!,
+              CrusaderBlacks.deepBlack,
+              Color.lerp(CrusaderBlacks.deepBlack, secondary, 0.02)!,
+              CrusaderBlacks.deepBlack,
+            ],
+            stops: const [0.0, 0.25, 0.5, 0.75, 1.0],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              description,
-              style: TextStyle(color: CrusaderGrays.primary, fontSize: 13),
+        ),
+        child: Stack(
+          children: [
+            // Top-left primary accent blob
+            Positioned(
+              top: -120,
+              left: -80,
+              child: Container(
+                width: 500,
+                height: 500,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      primary.withValues(alpha: 0.06),
+                      primary.withValues(alpha: 0.02),
+                      Colors.transparent,
+                    ],
+                    stops: const [0.0, 0.4, 1.0],
+                  ),
+                ),
+              ),
             ),
-          ),
-        ],
+            // Bottom-right secondary accent blob
+            Positioned(
+              bottom: -160,
+              right: -100,
+              child: Container(
+                width: 600,
+                height: 600,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      secondary.withValues(alpha: 0.04),
+                      secondary.withValues(alpha: 0.015),
+                      Colors.transparent,
+                    ],
+                    stops: const [0.0, 0.35, 1.0],
+                  ),
+                ),
+              ),
+            ),
+            // Center-right subtle tertiary wash
+            Positioned(
+              top: MediaQuery.sizeOf(context).height * 0.3,
+              right: MediaQuery.sizeOf(context).width * 0.15,
+              child: Container(
+                width: 400,
+                height: 400,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      primary.withValues(alpha: 0.025),
+                      Colors.transparent,
+                    ],
+                    stops: const [0.0, 1.0],
+                  ),
+                ),
+              ),
+            ),
+            // Subtle film grain overlay via a noise-like pattern
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.white.withValues(alpha: 0.008),
+                      Colors.transparent,
+                      Colors.white.withValues(alpha: 0.005),
+                    ],
+                    stops: const [0.0, 0.6, 1.0],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -466,14 +424,18 @@ class _DesktopShellState extends ConsumerState<_DesktopShell> {
   @override
   Widget build(BuildContext context) {
     final isCollapsed = ref.watch(sidebarCollapsedProvider);
+    final accents = Theme.of(context).extension<CrusaderAccentTheme>()!;
     // When pinned open, the sidebar takes full expanded width in the row.
     // When collapsed, sidebar is the icon rail. On hover, an overlay expands.
     final showHoverOverlay = isCollapsed && _isHovering;
 
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
+          // ── Ambient background: subtle radial accent blobs ──
+          const _AmbientBackground(),
+
           // ── Main row: sidebar rail/expanded + divider + content ──
           Row(
             children: [
@@ -490,10 +452,23 @@ class _DesktopShellState extends ConsumerState<_DesktopShell> {
               else
                 _DesktopSidebar(width: _expandedWidth, isCollapsed: false),
 
-              // Divider
+              // Accent divider line
               Container(
                 width: 1,
-                color: CrusaderGrays.border.withValues(alpha: 0.5),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      accents.primary.withValues(alpha: 0.15),
+                      accents.primary.withValues(alpha: 0.25),
+                      accents.primary.withValues(alpha: 0.15),
+                      Colors.transparent,
+                    ],
+                    stops: const [0.0, 0.2, 0.5, 0.8, 1.0],
+                  ),
+                ),
               ),
 
               // Main content
@@ -566,6 +541,99 @@ class _DesktopSidebarState extends ConsumerState<_DesktopSidebar> {
     });
   }
 
+  void _showCreateFolderDialog(
+    BuildContext context,
+    WidgetRef ref,
+    EmailAccount account,
+  ) {
+    final controller = TextEditingController();
+    final accents = Theme.of(context).extension<CrusaderAccentTheme>()!;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: CrusaderBlacks.elevated,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(
+              color: CrusaderGrays.border.withValues(alpha: 0.3),
+            ),
+          ),
+          title: Text(
+            'New Folder',
+            style: Theme.of(
+              ctx,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          content: SizedBox(
+            width: 320,
+            child: TextField(
+              controller: controller,
+              autofocus: true,
+              style: Theme.of(ctx).textTheme.bodyMedium,
+              decoration: InputDecoration(
+                hintText: 'Folder name',
+                hintStyle: Theme.of(
+                  ctx,
+                ).textTheme.bodyMedium?.copyWith(color: CrusaderGrays.muted),
+                filled: true,
+                fillColor: CrusaderBlacks.charcoal,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(
+                    color: CrusaderGrays.border.withValues(alpha: 0.3),
+                  ),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(
+                    color: CrusaderGrays.border.withValues(alpha: 0.3),
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: accents.primary),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+              ),
+              onSubmitted: (value) {
+                if (value.trim().isNotEmpty) {
+                  Navigator.of(ctx).pop(value.trim());
+                }
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text(
+                'Cancel',
+                style: TextStyle(color: CrusaderGrays.secondary),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                final name = controller.text.trim();
+                if (name.isNotEmpty) {
+                  Navigator.of(ctx).pop(name);
+                }
+              },
+              child: Text('Create', style: TextStyle(color: accents.primary)),
+            ),
+          ],
+        );
+      },
+    ).then((folderName) {
+      if (folderName != null && folderName is String) {
+        ref.read(inboxProvider.notifier).createFolder(folderName);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final accents = Theme.of(context).extension<CrusaderAccentTheme>()!;
@@ -600,7 +668,7 @@ class _DesktopSidebarState extends ConsumerState<_DesktopSidebar> {
         ),
         decoration: BoxDecoration(
           color: collapsed
-              ? CrusaderBlacks.softBlack.withValues(alpha: 0.6)
+              ? CrusaderBlacks.softBlack
               : CrusaderBlacks.deepBlack,
         ),
         child: Column(
@@ -619,42 +687,20 @@ class _DesktopSidebarState extends ConsumerState<_DesktopSidebar> {
                   child: collapsed
                       ? Tooltip(
                           message: 'Crusader',
-                          child: Container(
+                          child: Image.asset(
+                            'assets/icon/app_icon_transparent.png',
                             width: 32,
                             height: 32,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(8),
-                              gradient: LinearGradient(
-                                colors: [accents.primary, accents.secondary],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                            ),
-                            child: const Icon(
-                              Icons.shield_rounded,
-                              color: Colors.white,
-                              size: 16,
-                            ),
+                            filterQuality: FilterQuality.medium,
                           ),
                         )
                       : Row(
                           children: [
-                            Container(
-                              width: 26,
-                              height: 26,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(7),
-                                gradient: LinearGradient(
-                                  colors: [accents.primary, accents.secondary],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
-                              ),
-                              child: const Icon(
-                                Icons.shield_rounded,
-                                color: Colors.white,
-                                size: 14,
-                              ),
+                            Image.asset(
+                              'assets/icon/app_icon_transparent.png',
+                              width: 28,
+                              height: 28,
+                              filterQuality: FilterQuality.medium,
                             ),
                             const SizedBox(width: 10),
                             Flexible(
@@ -702,47 +748,43 @@ class _DesktopSidebarState extends ConsumerState<_DesktopSidebar> {
                                 height: 38,
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(10),
-                                  gradient: LinearGradient(
-                                    colors: _isComposeHovered
-                                        ? [
-                                            accents.primary,
-                                            accents.secondary.withValues(
-                                              alpha: 0.8,
-                                            ),
-                                          ]
-                                        : [
-                                            accents.primary.withValues(
-                                              alpha: 0.85,
-                                            ),
-                                            accents.secondary.withValues(
-                                              alpha: 0.65,
-                                            ),
-                                          ],
-                                    begin: Alignment.centerLeft,
-                                    end: Alignment.centerRight,
+                                  color: _isComposeHovered
+                                      ? accents.primary.withValues(alpha: 0.18)
+                                      : accents.primary.withValues(alpha: 0.10),
+                                  border: Border.all(
+                                    color: _isComposeHovered
+                                        ? accents.primary.withValues(alpha: 0.6)
+                                        : accents.primary.withValues(
+                                            alpha: 0.25,
+                                          ),
+                                    width: 1,
                                   ),
-                                  boxShadow: _isComposeHovered
-                                      ? [
-                                          BoxShadow(
-                                            color: accents.primaryGlow
-                                                .withValues(alpha: 0.4),
-                                            blurRadius: 12,
-                                            spreadRadius: -3,
-                                          ),
-                                        ]
-                                      : [
-                                          BoxShadow(
-                                            color: accents.primaryGlow
-                                                .withValues(alpha: 0.15),
-                                            blurRadius: 6,
-                                            spreadRadius: -3,
-                                          ),
-                                        ],
+                                  boxShadow: [
+                                    // Outer glow
+                                    BoxShadow(
+                                      color: accents.primaryGlow.withValues(
+                                        alpha: _isComposeHovered ? 0.35 : 0.15,
+                                      ),
+                                      blurRadius: _isComposeHovered ? 16 : 10,
+                                      spreadRadius: _isComposeHovered ? -2 : -3,
+                                    ),
+                                    // Depth shadow
+                                    BoxShadow(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.4,
+                                      ),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 2),
+                                      spreadRadius: -2,
+                                    ),
+                                  ],
                                 ),
-                                child: const Icon(
+                                child: Icon(
                                   Icons.edit_rounded,
                                   size: 16,
-                                  color: Colors.white,
+                                  color: _isComposeHovered
+                                      ? accents.primary
+                                      : accents.primary.withValues(alpha: 0.85),
                                 ),
                               ),
                             )
@@ -755,58 +797,59 @@ class _DesktopSidebarState extends ConsumerState<_DesktopSidebar> {
                               ),
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(10),
-                                gradient: LinearGradient(
-                                  colors: _isComposeHovered
-                                      ? [
-                                          accents.primary,
-                                          accents.secondary.withValues(
-                                            alpha: 0.8,
-                                          ),
-                                        ]
-                                      : [
-                                          accents.primary.withValues(
-                                            alpha: 0.85,
-                                          ),
-                                          accents.secondary.withValues(
-                                            alpha: 0.65,
-                                          ),
-                                        ],
-                                  begin: Alignment.centerLeft,
-                                  end: Alignment.centerRight,
+                                color: _isComposeHovered
+                                    ? accents.primary.withValues(alpha: 0.18)
+                                    : accents.primary.withValues(alpha: 0.10),
+                                border: Border.all(
+                                  color: _isComposeHovered
+                                      ? accents.primary.withValues(alpha: 0.6)
+                                      : accents.primary.withValues(alpha: 0.25),
+                                  width: 1,
                                 ),
-                                boxShadow: _isComposeHovered
-                                    ? [
-                                        BoxShadow(
-                                          color: accents.primaryGlow.withValues(
-                                            alpha: 0.4,
-                                          ),
-                                          blurRadius: 16,
-                                          spreadRadius: -4,
-                                        ),
-                                      ]
-                                    : [
-                                        BoxShadow(
-                                          color: accents.primaryGlow.withValues(
-                                            alpha: 0.2,
-                                          ),
-                                          blurRadius: 8,
-                                          spreadRadius: -4,
-                                        ),
-                                      ],
+                                boxShadow: [
+                                  // Outer accent glow
+                                  BoxShadow(
+                                    color: accents.primaryGlow.withValues(
+                                      alpha: _isComposeHovered ? 0.35 : 0.15,
+                                    ),
+                                    blurRadius: _isComposeHovered ? 20 : 12,
+                                    spreadRadius: _isComposeHovered ? -2 : -3,
+                                  ),
+                                  // Depth shadow
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.45),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 3),
+                                    spreadRadius: -3,
+                                  ),
+                                  // Inner lift highlight (top edge)
+                                  BoxShadow(
+                                    color: Colors.white.withValues(alpha: 0.04),
+                                    blurRadius: 0,
+                                    offset: const Offset(0, -1),
+                                    spreadRadius: 0,
+                                  ),
+                                ],
                               ),
                               child: Row(
                                 children: [
-                                  const Icon(
+                                  Icon(
                                     Icons.edit_rounded,
                                     size: 16,
-                                    color: Colors.white,
+                                    color: _isComposeHovered
+                                        ? accents.primary
+                                        : accents.primary.withValues(
+                                            alpha: 0.85,
+                                          ),
                                   ),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
                                       'Compose',
                                       style: textTheme.titleSmall?.copyWith(
-                                        color: Colors.white,
+                                        color: _isComposeHovered
+                                            ? CrusaderGrays.bright
+                                            : CrusaderGrays.primary,
                                         fontWeight: FontWeight.w600,
                                       ),
                                       maxLines: 1,
@@ -849,7 +892,7 @@ class _DesktopSidebarState extends ConsumerState<_DesktopSidebar> {
                           child: Text(
                             'ACCOUNTS',
                             style: textTheme.labelSmall?.copyWith(
-                              color: CrusaderGrays.muted,
+                              color: CrusaderGrays.secondary,
                               fontWeight: FontWeight.w600,
                               letterSpacing: 1.2,
                               fontSize: 10,
@@ -940,6 +983,10 @@ class _DesktopSidebarState extends ConsumerState<_DesktopSidebar> {
                         final isExpanded = _expandedAccounts.contains(
                           account.id,
                         );
+                        // All accounts get mailboxes if expanded so we
+                        // can show cached folders.  Active account always
+                        // has the live list; inactive accounts show nothing
+                        // unless we have data for them.
                         final accountMailboxes = isActive
                             ? mailboxes
                             : <Mailbox>[];
@@ -955,7 +1002,10 @@ class _DesktopSidebarState extends ConsumerState<_DesktopSidebar> {
                               ref
                                   .read(accountProvider.notifier)
                                   .switchAccount(account.id);
-                              _expandedAccounts.add(account.id);
+                              setState(() {
+                                _expandedAccounts.clear();
+                                _expandedAccounts.add(account.id);
+                              });
                               Future.microtask(() {
                                 ref.read(inboxProvider.notifier).syncInbox();
                               });
@@ -973,6 +1023,7 @@ class _DesktopSidebarState extends ConsumerState<_DesktopSidebar> {
                         }
 
                         Widget section = _AccountSection(
+                          key: ValueKey('account_${account.id}'),
                           account: account,
                           isActive: isActive,
                           isExpanded: isExpanded,
@@ -993,7 +1044,10 @@ class _DesktopSidebarState extends ConsumerState<_DesktopSidebar> {
                             ref
                                 .read(accountProvider.notifier)
                                 .switchAccount(account.id);
-                            _expandedAccounts.add(account.id);
+                            setState(() {
+                              _expandedAccounts.clear();
+                              _expandedAccounts.add(account.id);
+                            });
                             Future.microtask(() {
                               ref.read(inboxProvider.notifier).syncInbox();
                             });
@@ -1006,6 +1060,8 @@ class _DesktopSidebarState extends ConsumerState<_DesktopSidebar> {
                                 .read(inboxProvider.notifier)
                                 .selectMailbox(mailbox);
                           },
+                          onCreateFolder: () =>
+                              _showCreateFolderDialog(context, ref, account),
                         );
                         if (shouldAnimate) {
                           section = section
@@ -1337,11 +1393,10 @@ class _CollapsedAccountIconState extends State<_CollapsedAccountIcon> {
 // ─────────────────────────────────────────────────────────────────────────────
 // Account Section — collapsible account with mailbox folders
 // ─────────────────────────────────────────────────────────────────────────────
-// Account Section — collapsible account with mailbox folders
-// ─────────────────────────────────────────────────────────────────────────────
 
-class _AccountSection extends StatefulWidget {
+class _AccountSection extends ConsumerStatefulWidget {
   const _AccountSection({
+    super.key,
     required this.account,
     required this.isActive,
     required this.isExpanded,
@@ -1352,6 +1407,7 @@ class _AccountSection extends StatefulWidget {
     required this.onToggleExpand,
     required this.onSwitchAccount,
     required this.onSelectMailbox,
+    required this.onCreateFolder,
   });
 
   final EmailAccount account;
@@ -1364,12 +1420,13 @@ class _AccountSection extends StatefulWidget {
   final VoidCallback onToggleExpand;
   final VoidCallback onSwitchAccount;
   final ValueChanged<Mailbox> onSelectMailbox;
+  final VoidCallback onCreateFolder;
 
   @override
-  State<_AccountSection> createState() => _AccountSectionState();
+  ConsumerState<_AccountSection> createState() => _AccountSectionState();
 }
 
-class _AccountSectionState extends State<_AccountSection> {
+class _AccountSectionState extends ConsumerState<_AccountSection> {
   bool _isHeaderHovered = false;
 
   Color get _providerColor => widget.account.provider == EmailProvider.gmail
@@ -1379,6 +1436,31 @@ class _AccountSectionState extends State<_AccountSection> {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final collapseNotifier = ref.watch(sectionCollapseProvider.notifier);
+    final accountId = widget.account.id;
+    final labelsExpanded = ref.watch(
+      sectionCollapseProvider.select(
+        (s) => collapseNotifier.isSectionExpanded(accountId, 'labels'),
+      ),
+    );
+    final systemExpanded = ref.watch(
+      sectionCollapseProvider.select(
+        (s) => collapseNotifier.isSectionExpanded(accountId, 'system'),
+      ),
+    );
+
+    // Sort and group mailboxes.
+    final sorted = List<Mailbox>.from(widget.mailboxes)
+      ..sort((a, b) {
+        final pa = _mailboxSortPriority(a);
+        final pb = _mailboxSortPriority(b);
+        if (pa != pb) return pa.compareTo(pb);
+        return a.name.compareTo(b.name);
+      });
+
+    final coreFolders = sorted.where(_isCoreMailbox).toList();
+    final labels = sorted.where(_isLabelMailbox).toList();
+    final systemFolders = sorted.where(_isSystemMailbox).toList();
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
@@ -1392,11 +1474,14 @@ class _AccountSectionState extends State<_AccountSection> {
             cursor: SystemMouseCursors.click,
             child: GestureDetector(
               onTap: () {
-                // If not active, switch to this account first.
                 if (!widget.isActive) {
+                  // Switch to this account — onSwitchAccount already
+                  // handles expanding it and collapsing others.
                   widget.onSwitchAccount();
+                } else {
+                  // Already active — just toggle expand/collapse.
+                  widget.onToggleExpand();
                 }
-                widget.onToggleExpand();
               },
               behavior: HitTestBehavior.opaque,
               child: AnimatedContainer(
@@ -1443,11 +1528,11 @@ class _AccountSectionState extends State<_AccountSection> {
                             style: textTheme.bodySmall?.copyWith(
                               fontWeight: widget.isActive
                                   ? FontWeight.w600
-                                  : FontWeight.w400,
-                              fontSize: 12,
+                                  : FontWeight.w500,
+                              fontSize: 12.5,
                               color: widget.isActive
-                                  ? null
-                                  : CrusaderGrays.secondary,
+                                  ? CrusaderGrays.bright
+                                  : CrusaderGrays.primary,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -1455,8 +1540,8 @@ class _AccountSectionState extends State<_AccountSection> {
                           Text(
                             widget.account.email,
                             style: textTheme.labelSmall?.copyWith(
-                              color: CrusaderGrays.muted,
-                              fontSize: 10,
+                              color: CrusaderGrays.secondary,
+                              fontSize: 10.5,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -1506,22 +1591,77 @@ class _AccountSectionState extends State<_AccountSection> {
             secondChild: Padding(
               padding: const EdgeInsets.only(left: 8, top: 2),
               child: Column(
-                children: widget.mailboxes.map((mailbox) {
-                  final isMailboxActive =
-                      mailbox.path == widget.selectedMailbox?.path &&
-                      widget.currentLocation == CrusaderRoutes.inbox &&
-                      widget.isActive;
-                  return _MailboxNavItem(
-                    mailbox: mailbox,
-                    isActive: isMailboxActive,
-                    onTap: () {
-                      if (!widget.isActive) {
-                        widget.onSwitchAccount();
-                      }
-                      widget.onSelectMailbox(mailbox);
-                    },
-                  );
-                }).toList(),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ── Core folders (Inbox, Starred, Sent, Drafts, etc.) ──
+                  ...coreFolders.map((mailbox) => _buildMailboxItem(mailbox)),
+
+                  // ── Labels / custom folders (collapsible) ──
+                  if (labels.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    _FolderSectionHeader(
+                      title: 'Labels',
+                      isExpanded: labelsExpanded,
+                      onToggle: () => ref
+                          .read(sectionCollapseProvider.notifier)
+                          .toggleSection(accountId, 'labels'),
+                      trailing: _CreateFolderButton(
+                        onTap: widget.onCreateFolder,
+                      ),
+                    ),
+                    AnimatedCrossFade(
+                      firstChild: const SizedBox.shrink(),
+                      secondChild: Column(
+                        children: labels
+                            .map((mailbox) => _buildMailboxItem(mailbox))
+                            .toList(),
+                      ),
+                      crossFadeState: labelsExpanded
+                          ? CrossFadeState.showSecond
+                          : CrossFadeState.showFirst,
+                      duration: const Duration(milliseconds: 180),
+                      sizeCurve: Curves.easeOutCubic,
+                    ),
+                  ],
+
+                  // If no labels yet, still show a create button
+                  if (labels.isEmpty) ...[
+                    const SizedBox(height: 4),
+                    _FolderSectionHeader(
+                      title: 'Labels',
+                      isExpanded: true,
+                      onToggle: () {},
+                      trailing: _CreateFolderButton(
+                        onTap: widget.onCreateFolder,
+                      ),
+                    ),
+                  ],
+
+                  // ── System folders (All Mail, etc.) ──
+                  if (systemFolders.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    _FolderSectionHeader(
+                      title: 'More',
+                      isExpanded: systemExpanded,
+                      onToggle: () => ref
+                          .read(sectionCollapseProvider.notifier)
+                          .toggleSection(accountId, 'system'),
+                    ),
+                    AnimatedCrossFade(
+                      firstChild: const SizedBox.shrink(),
+                      secondChild: Column(
+                        children: systemFolders
+                            .map((mailbox) => _buildMailboxItem(mailbox))
+                            .toList(),
+                      ),
+                      crossFadeState: systemExpanded
+                          ? CrossFadeState.showSecond
+                          : CrossFadeState.showFirst,
+                      duration: const Duration(milliseconds: 180),
+                      sizeCurve: Curves.easeOutCubic,
+                    ),
+                  ],
+                ],
               ),
             ),
             crossFadeState: widget.isExpanded
@@ -1531,6 +1671,142 @@ class _AccountSectionState extends State<_AccountSection> {
             sizeCurve: Curves.easeOutCubic,
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMailboxItem(Mailbox mailbox) {
+    final isMailboxActive =
+        mailbox.path == widget.selectedMailbox?.path &&
+        widget.currentLocation == CrusaderRoutes.inbox &&
+        widget.isActive;
+    return _MailboxNavItem(
+      mailbox: mailbox,
+      isActive: isMailboxActive,
+      onTap: () {
+        if (!widget.isActive) {
+          widget.onSwitchAccount();
+        }
+        widget.onSelectMailbox(mailbox);
+      },
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Folder Section Header — collapsible group header (Labels, More)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _FolderSectionHeader extends StatefulWidget {
+  const _FolderSectionHeader({
+    required this.title,
+    required this.isExpanded,
+    required this.onToggle,
+    this.trailing,
+  });
+
+  final String title;
+  final bool isExpanded;
+  final VoidCallback onToggle;
+  final Widget? trailing;
+
+  @override
+  State<_FolderSectionHeader> createState() => _FolderSectionHeaderState();
+}
+
+class _FolderSectionHeaderState extends State<_FolderSectionHeader> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: GestureDetector(
+          onTap: widget.onToggle,
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: Row(
+              children: [
+                AnimatedRotation(
+                  turns: widget.isExpanded ? 0.25 : 0,
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  child: Icon(
+                    Icons.chevron_right_rounded,
+                    size: 12,
+                    color: CrusaderGrays.muted,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  widget.title.toUpperCase(),
+                  style: textTheme.labelSmall?.copyWith(
+                    color: _isHovered
+                        ? CrusaderGrays.primary
+                        : CrusaderGrays.secondary,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.0,
+                  ),
+                ),
+                const Spacer(),
+                if (widget.trailing != null &&
+                    (_isHovered || widget.isExpanded))
+                  widget.trailing!,
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Create Folder Button — small + icon in section header
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _CreateFolderButton extends StatefulWidget {
+  const _CreateFolderButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  State<_CreateFolderButton> createState() => _CreateFolderButtonState();
+}
+
+class _CreateFolderButtonState extends State<_CreateFolderButton> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.all(2),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(4),
+            color: _isHovered
+                ? CrusaderGrays.border.withValues(alpha: 0.3)
+                : Colors.transparent,
+          ),
+          child: Icon(
+            Icons.add_rounded,
+            size: 14,
+            color: _isHovered ? CrusaderGrays.secondary : CrusaderGrays.muted,
+          ),
+        ),
       ),
     );
   }
@@ -1648,10 +1924,27 @@ class _MailboxNavItemState extends State<_MailboxNavItem> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(8),
               color: widget.isActive
-                  ? accents.primary.withValues(alpha: 0.1)
+                  ? accents.primary.withValues(alpha: 0.12)
                   : _isHovered
                   ? CrusaderGrays.border.withValues(alpha: 0.25)
                   : Colors.transparent,
+              border: widget.isActive
+                  ? Border(
+                      left: BorderSide(
+                        color: accents.primary.withValues(alpha: 0.8),
+                        width: 2,
+                      ),
+                    )
+                  : null,
+              boxShadow: widget.isActive
+                  ? [
+                      BoxShadow(
+                        color: accents.primary.withValues(alpha: 0.08),
+                        blurRadius: 12,
+                        spreadRadius: -2,
+                      ),
+                    ]
+                  : null,
             ),
             child: Row(
               children: [
@@ -1661,8 +1954,8 @@ class _MailboxNavItemState extends State<_MailboxNavItem> {
                   color: widget.isActive
                       ? accents.primary
                       : _isHovered
-                      ? CrusaderGrays.secondary
-                      : CrusaderGrays.muted,
+                      ? CrusaderGrays.primary
+                      : CrusaderGrays.secondary,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -1671,6 +1964,8 @@ class _MailboxNavItemState extends State<_MailboxNavItem> {
                     style: textTheme.bodyMedium?.copyWith(
                       color: widget.isActive
                           ? accents.primary
+                          : _isHovered
+                          ? CrusaderGrays.bright
                           : CrusaderGrays.primary,
                       fontWeight: widget.isActive
                           ? FontWeight.w600

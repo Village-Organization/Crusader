@@ -69,6 +69,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icon/app_icon.png
+    - assets/icon/app_icon_transparent.png
+    - assets/icon/tray_icon.png
 
 # --- App Icon Configuration ---
 flutter_launcher_icons:
@@ -76,7 +80,7 @@ flutter_launcher_icons:
   windows:
     generate: true
     image_path: "assets/icon/app_icon.png"
-    icon_size: 48
+    icon_size: 256
   ios:
     generate: true
     image_path: "assets/icon/app_icon.png"

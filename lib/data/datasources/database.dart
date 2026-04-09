@@ -46,12 +46,14 @@ class CachedEmails extends Table {
   // Threading headers
   TextColumn get messageId => text().nullable()();
   TextColumn get inReplyTo => text().nullable()();
-  TextColumn get references => text().withDefault(const Constant(''))(); // comma-separated
+  TextColumn get references =>
+      text().withDefault(const Constant(''))(); // comma-separated
   TextColumn get threadId => text().nullable()();
 
   // Metadata
   IntColumn get size => integer().withDefault(const Constant(0))();
-  BoolColumn get hasAttachments => boolean().withDefault(const Constant(false))();
+  BoolColumn get hasAttachments =>
+      boolean().withDefault(const Constant(false))();
   IntColumn get attachmentCount => integer().withDefault(const Constant(0))();
   TextColumn get attachmentsJson => text().withDefault(const Constant('[]'))();
 
@@ -64,8 +66,8 @@ class CachedEmails extends Table {
 
   @override
   List<Set<Column>> get uniqueKeys => [
-        {accountId, mailboxPath, uid},
-      ];
+    {accountId, mailboxPath, uid},
+  ];
 }
 
 /// Cached mailbox / folder metadata.
@@ -113,50 +115,50 @@ class CrusaderDatabase extends _$CrusaderDatabase {
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-        onCreate: (Migrator m) async {
-          await m.createAll();
-          // Create performance indexes.
-          await customStatement(
-            'CREATE INDEX IF NOT EXISTS idx_emails_account_mailbox_date '
-            'ON cached_emails (account_id, mailbox_path, date DESC)',
-          );
-          await customStatement(
-            'CREATE INDEX IF NOT EXISTS idx_emails_account_thread '
-            'ON cached_emails (account_id, thread_id)',
-          );
-        },
-        onUpgrade: (Migrator m, int from, int to) async {
-          if (from < 2) {
-            // Add attachmentsJson column (schema v2).
-            // Wrapped in try-catch: the column may already exist if the
-            // migration ran partially or the DB file was reused.
-            try {
-              await customStatement(
-                "ALTER TABLE cached_emails ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'",
-              );
-            } on Exception {
-              // Column already exists — safe to ignore.
-            }
-          }
-          if (from < 3) {
-            // Add snooze columns (schema v3).
-            try {
-              await customStatement(
-                'ALTER TABLE cached_emails ADD COLUMN snoozed_until INTEGER',
-              );
-            } on Exception {
-              // Column already exists — safe to ignore.
-            }
-            try {
-              await customStatement(
-                'ALTER TABLE cached_emails ADD COLUMN is_snoozed INTEGER NOT NULL DEFAULT 0',
-              );
-            } on Exception {
-              // Column already exists — safe to ignore.
-            }
-          }
-        },
+    onCreate: (Migrator m) async {
+      await m.createAll();
+      // Create performance indexes.
+      await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_emails_account_mailbox_date '
+        'ON cached_emails (account_id, mailbox_path, date DESC)',
       );
+      await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_emails_account_thread '
+        'ON cached_emails (account_id, thread_id)',
+      );
+    },
+    onUpgrade: (Migrator m, int from, int to) async {
+      if (from < 2) {
+        // Add attachmentsJson column (schema v2).
+        // Wrapped in try-catch: the column may already exist if the
+        // migration ran partially or the DB file was reused.
+        try {
+          await customStatement(
+            "ALTER TABLE cached_emails ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'",
+          );
+        } on Exception {
+          // Column already exists — safe to ignore.
+        }
+      }
+      if (from < 3) {
+        // Add snooze columns (schema v3).
+        try {
+          await customStatement(
+            'ALTER TABLE cached_emails ADD COLUMN snoozed_until INTEGER',
+          );
+        } on Exception {
+          // Column already exists — safe to ignore.
+        }
+        try {
+          await customStatement(
+            'ALTER TABLE cached_emails ADD COLUMN is_snoozed INTEGER NOT NULL DEFAULT 0',
+          );
+        } on Exception {
+          // Column already exists — safe to ignore.
+        }
+      }
+    },
+  );
 
   // ── Email Queries ───────────────────────────────────────────────────────
 
@@ -169,9 +171,10 @@ class CrusaderDatabase extends _$CrusaderDatabase {
     bool includeSnoozed = false,
   }) async {
     final query = select(cachedEmails)
-      ..where((e) =>
-          e.accountId.equals(accountId) &
-          e.mailboxPath.equals(mailboxPath))
+      ..where(
+        (e) =>
+            e.accountId.equals(accountId) & e.mailboxPath.equals(mailboxPath),
+      )
       ..orderBy([
         (e) => OrderingTerm(expression: e.date, mode: OrderingMode.desc),
       ])
@@ -184,8 +187,9 @@ class CrusaderDatabase extends _$CrusaderDatabase {
 
   /// Get a single email by ID.
   Future<CachedEmail?> getEmailById(String id) async {
-    return (select(cachedEmails)..where((e) => e.id.equals(id)))
-        .getSingleOrNull();
+    return (select(
+      cachedEmails,
+    )..where((e) => e.id.equals(id))).getSingleOrNull();
   }
 
   /// Get all emails for a thread ID.
@@ -194,8 +198,9 @@ class CrusaderDatabase extends _$CrusaderDatabase {
     String threadId,
   ) async {
     return (select(cachedEmails)
-          ..where((e) =>
-              e.accountId.equals(accountId) & e.threadId.equals(threadId))
+          ..where(
+            (e) => e.accountId.equals(accountId) & e.threadId.equals(threadId),
+          )
           ..orderBy([
             (e) => OrderingTerm(expression: e.date, mode: OrderingMode.asc),
           ]))
@@ -222,19 +227,20 @@ class CrusaderDatabase extends _$CrusaderDatabase {
     String mailboxPath,
     int uid,
   ) async {
-    return (select(cachedEmails)
-          ..where((e) =>
+    return (select(cachedEmails)..where(
+          (e) =>
               e.accountId.equals(accountId) &
               e.mailboxPath.equals(mailboxPath) &
-              e.uid.equals(uid)))
+              e.uid.equals(uid),
+        ))
         .getSingleOrNull();
   }
 
   /// Delete all emails for an account.
   Future<void> deleteEmailsForAccount(String accountId) async {
-    await (delete(cachedEmails)
-          ..where((e) => e.accountId.equals(accountId)))
-        .go();
+    await (delete(
+      cachedEmails,
+    )..where((e) => e.accountId.equals(accountId))).go();
   }
 
   /// Delete a single email by ID.
@@ -243,18 +249,17 @@ class CrusaderDatabase extends _$CrusaderDatabase {
   }
 
   /// Search emails by text (subject, snippet, from).
-  Future<List<CachedEmail>> searchEmails(
-    String accountId,
-    String query,
-  ) async {
+  Future<List<CachedEmail>> searchEmails(String accountId, String query) async {
     final pattern = '%$query%';
     return (select(cachedEmails)
-          ..where((e) =>
-              e.accountId.equals(accountId) &
-              (e.subject.like(pattern) |
-                  e.snippet.like(pattern) |
-                  e.fromAddress.like(pattern) |
-                  e.fromName.like(pattern)))
+          ..where(
+            (e) =>
+                e.accountId.equals(accountId) &
+                (e.subject.like(pattern) |
+                    e.snippet.like(pattern) |
+                    e.fromAddress.like(pattern) |
+                    e.fromName.like(pattern)),
+          )
           ..orderBy([
             (e) => OrderingTerm(expression: e.date, mode: OrderingMode.desc),
           ])
@@ -269,8 +274,7 @@ class CrusaderDatabase extends _$CrusaderDatabase {
     int limit = 200,
   }) async {
     final query = select(cachedEmails)
-      ..where((e) =>
-          e.mailboxPath.equals('INBOX') & e.isSnoozed.equals(false))
+      ..where((e) => e.mailboxPath.equals('INBOX') & e.isSnoozed.equals(false))
       ..orderBy([
         (e) => OrderingTerm(expression: e.date, mode: OrderingMode.desc),
       ])
@@ -283,8 +287,26 @@ class CrusaderDatabase extends _$CrusaderDatabase {
 
   /// Update flags for an email.
   Future<void> updateEmailFlags(String emailId, String flags) async {
-    await (update(cachedEmails)..where((e) => e.id.equals(emailId)))
-        .write(CachedEmailsCompanion(flags: Value(flags)));
+    await (update(cachedEmails)..where((e) => e.id.equals(emailId))).write(
+      CachedEmailsCompanion(flags: Value(flags)),
+    );
+  }
+
+  /// Bulk-update flags by (accountId, mailboxPath, uid) key.
+  Future<void> bulkUpdateFlags(
+    String accountId,
+    String mailboxPath,
+    Map<int, String> uidToFlags,
+  ) async {
+    for (final entry in uidToFlags.entries) {
+      await (update(cachedEmails)..where(
+            (e) =>
+                e.accountId.equals(accountId) &
+                e.mailboxPath.equals(mailboxPath) &
+                e.uid.equals(entry.key),
+          ))
+          .write(CachedEmailsCompanion(flags: Value(entry.value)));
+    }
   }
 
   /// Snooze an email until the specified time.
@@ -309,10 +331,11 @@ class CrusaderDatabase extends _$CrusaderDatabase {
 
   /// Get all snoozed emails whose snooze time has elapsed.
   Future<List<CachedEmail>> getSnoozedEmailsDue() async {
-    return (select(cachedEmails)
-          ..where((e) =>
+    return (select(cachedEmails)..where(
+          (e) =>
               e.isSnoozed.equals(true) &
-              e.snoozedUntil.isSmallerOrEqualValue(DateTime.now())))
+              e.snoozedUntil.isSmallerOrEqualValue(DateTime.now()),
+        ))
         .get();
   }
 
@@ -347,10 +370,10 @@ class CrusaderDatabase extends _$CrusaderDatabase {
     String accountId,
     String mailboxPath,
   ) async {
-    return (select(syncState)
-          ..where((s) =>
-              s.accountId.equals(accountId) &
-              s.mailboxPath.equals(mailboxPath)))
+    return (select(syncState)..where(
+          (s) =>
+              s.accountId.equals(accountId) & s.mailboxPath.equals(mailboxPath),
+        ))
         .getSingleOrNull();
   }
 
@@ -364,12 +387,10 @@ class CrusaderDatabase extends _$CrusaderDatabase {
   /// Clear all data for an account (on account removal).
   Future<void> clearAccountData(String accountId) async {
     await deleteEmailsForAccount(accountId);
-    await (delete(cachedMailboxes)
-          ..where((m) => m.accountId.equals(accountId)))
-        .go();
-    await (delete(syncState)
-          ..where((s) => s.accountId.equals(accountId)))
-        .go();
+    await (delete(
+      cachedMailboxes,
+    )..where((m) => m.accountId.equals(accountId))).go();
+    await (delete(syncState)..where((s) => s.accountId.equals(accountId))).go();
   }
 }
 

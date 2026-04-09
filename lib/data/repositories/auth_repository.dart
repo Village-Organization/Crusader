@@ -18,9 +18,8 @@ import '../../domain/entities/oauth_token.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 
 class AuthRepository {
-  AuthRepository({
-    FlutterSecureStorage? secureStorage,
-  }) : _secureStorage = secureStorage ?? const FlutterSecureStorage();
+  AuthRepository({FlutterSecureStorage? secureStorage})
+    : _secureStorage = secureStorage ?? const FlutterSecureStorage();
 
   final FlutterSecureStorage _secureStorage;
   static const _uuid = Uuid();
@@ -29,6 +28,7 @@ class AuthRepository {
   static const _accountsKey = 'crusader_accounts';
   static const _activeAccountKey = 'crusader_active_account';
   static const _tokenPrefix = 'crusader_token_';
+  static const _passwordPrefix = 'crusader_pwd_';
 
   // ── Account Management ──────────────────────────────────────────────────
 
@@ -39,9 +39,10 @@ class AuthRepository {
     if (raw == null || raw.isEmpty) return [];
 
     return raw
-        .map((json) => EmailAccount.fromJson(
-              jsonDecode(json) as Map<String, dynamic>,
-            ))
+        .map(
+          (json) =>
+              EmailAccount.fromJson(jsonDecode(json) as Map<String, dynamic>),
+        )
         .toList();
   }
 
@@ -63,6 +64,7 @@ class AuthRepository {
     accounts.removeWhere((a) => a.id == accountId);
     await _persistAccounts(accounts);
     await deleteToken(accountId);
+    await deletePassword(accountId);
 
     // If removed the active account, switch to first remaining.
     final prefs = await SharedPreferences.getInstance();
@@ -115,6 +117,26 @@ class AuthRepository {
     await _secureStorage.delete(key: '$_tokenPrefix$accountId');
   }
 
+  // ── Password Management (Secure Storage) ──────────────────────────────
+
+  /// Store a password/app-password securely.
+  Future<void> savePassword(String accountId, String password) async {
+    await _secureStorage.write(
+      key: '$_passwordPrefix$accountId',
+      value: password,
+    );
+  }
+
+  /// Retrieve a stored password.
+  Future<String?> getPassword(String accountId) async {
+    return _secureStorage.read(key: '$_passwordPrefix$accountId');
+  }
+
+  /// Delete a stored password.
+  Future<void> deletePassword(String accountId) async {
+    await _secureStorage.delete(key: '$_passwordPrefix$accountId');
+  }
+
   // ── Account Creation Helpers ──────────────────────────────────────────
 
   /// Create a new account entry after successful OAuth.
@@ -130,6 +152,28 @@ class AuthRepository {
       displayName: displayName,
       provider: provider,
       avatarUrl: avatarUrl,
+    );
+  }
+
+  /// Create a custom IMAP/SMTP account with password auth.
+  EmailAccount createCustomAccount({
+    required String email,
+    required String displayName,
+    required String imapHost,
+    required int imapPort,
+    required String smtpHost,
+    required int smtpPort,
+  }) {
+    return EmailAccount(
+      id: _uuid.v4(),
+      email: email,
+      displayName: displayName,
+      provider: EmailProvider.custom,
+      imapHost: imapHost,
+      imapPort: imapPort,
+      smtpHost: smtpHost,
+      smtpPort: smtpPort,
+      authMethod: AuthMethod.password,
     );
   }
 }

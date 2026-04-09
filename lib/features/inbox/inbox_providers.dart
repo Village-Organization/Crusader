@@ -16,6 +16,7 @@ import '../../data/datasources/database.dart';
 import '../../data/datasources/imap_service.dart';
 import '../../data/datasources/notification_service.dart';
 import '../../data/datasources/smtp_service.dart';
+import '../../data/datasources/system_tray_service.dart';
 import '../../data/repositories/email_repository.dart';
 import '../../domain/entities/email_thread.dart';
 import '../../domain/entities/mailbox.dart';
@@ -175,6 +176,10 @@ class InboxNotifier extends StateNotifier<InboxState> {
        _accountNotifier = accountNotifier,
        _ref = ref,
        super(InboxState()) {
+    // Update system tray whenever unread count changes.
+    addListener((state) {
+      SystemTrayService.instance.updateUnreadCount(state.unreadCount);
+    });
     _init();
   }
 
@@ -402,6 +407,27 @@ class InboxNotifier extends StateNotifier<InboxState> {
   }
 
   /// Switch to a different mailbox.
+  /// Create a new folder/label on the IMAP server.
+  Future<void> createFolder(String folderName) async {
+    final accountState = _ref.read(accountProvider);
+    final account = accountState.activeAccount;
+    if (account == null) return;
+
+    final token = await _accountNotifier.getValidToken(account.id);
+    if (token == null) return;
+
+    try {
+      final mailboxes = await _emailRepo.createFolder(
+        account: account,
+        accessToken: token.accessToken,
+        folderName: folderName,
+      );
+      state = state.copyWith(mailboxes: mailboxes);
+    } catch (_) {
+      // Folder creation failed — silently ignore for now.
+    }
+  }
+
   Future<void> selectMailbox(Mailbox mailbox) async {
     final accountState = _ref.read(accountProvider);
     final account = accountState.activeAccount;

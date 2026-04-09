@@ -50,10 +50,11 @@ class ImapService {
         isSecure: true,
       );
 
-      await client.authenticateWithOAuth2(
-        account.email,
-        accessToken,
-      );
+      if (account.authMethod == AuthMethod.password) {
+        await client.login(account.email, accessToken);
+      } else {
+        await client.authenticateWithOAuth2(account.email, accessToken);
+      }
 
       _clients[account.id] = client;
       return client;
@@ -88,9 +89,7 @@ class ImapService {
   // ── Mailbox Operations ────────────────────────────────────────────────
 
   /// List all mailboxes for a connected account.
-  Future<List<Mailbox>> listMailboxes({
-    required String accountId,
-  }) async {
+  Future<List<Mailbox>> listMailboxes({required String accountId}) async {
     final client = _requireClient(accountId);
 
     try {
@@ -101,6 +100,20 @@ class ImapService {
           .toList();
     } catch (e) {
       throw ImapException('Failed to list mailboxes: $e');
+    }
+  }
+
+  /// Create a new mailbox/folder on the IMAP server.
+  Future<void> createMailbox({
+    required String accountId,
+    required String path,
+  }) async {
+    final client = _requireClient(accountId);
+
+    try {
+      await client.createMailbox(path);
+    } catch (e) {
+      throw ImapException('Failed to create mailbox "$path": $e');
     }
   }
 
@@ -231,19 +244,52 @@ class ImapService {
     }
   }
 
-  /// Mark a message as read.
-  Future<void> markAsRead({
+  /// Fetch only FLAGS for a range of UIDs (lightweight flag refresh).
+  /// Returns a map of UID to [Set] of [EmailFlag].
+  Future<Map<int, Set<EmailFlag>>> fetchFlags({
     required String accountId,
-    required int uid,
+    required String mailboxPath,
+    required int fromUid,
+    required int toUid,
   }) async {
     final client = _requireClient(accountId);
 
     try {
-      await client.uidStore(
-        imap.MessageSequence.fromId(uid, isUid: true),
-        [imap.MessageFlags.seen],
-        action: imap.StoreAction.add,
+      await client.selectMailboxByPath(mailboxPath);
+
+      final sequence = imap.MessageSequence.fromRange(
+        fromUid,
+        toUid,
+        isUidSequence: true,
       );
+
+      final result = await client.uidFetchMessages(sequence, '(UID FLAGS)');
+
+      final flagMap = <int, Set<EmailFlag>>{};
+      for (final msg in result.messages) {
+        final uid = msg.uid;
+        if (uid == null) continue;
+        final flags = <EmailFlag>{};
+        if (msg.isSeen) flags.add(EmailFlag.seen);
+        if (msg.isFlagged) flags.add(EmailFlag.flagged);
+        if (msg.isAnswered) flags.add(EmailFlag.answered);
+        if (msg.isDeleted) flags.add(EmailFlag.deleted);
+        flagMap[uid] = flags;
+      }
+      return flagMap;
+    } catch (e) {
+      throw ImapException('Failed to fetch flags: $e');
+    }
+  }
+
+  /// Mark a message as read.
+  Future<void> markAsRead({required String accountId, required int uid}) async {
+    final client = _requireClient(accountId);
+
+    try {
+      await client.uidStore(imap.MessageSequence.fromId(uid, isUid: true), [
+        imap.MessageFlags.seen,
+      ], action: imap.StoreAction.add);
     } catch (e) {
       throw ImapException('Failed to mark as read: $e');
     }
@@ -371,10 +417,8 @@ class ImapService {
     final replyTo = _convertAddresses(envelope?.replyTo ?? msg.replyTo);
 
     // Threading headers
-    final messageId =
-        envelope?.messageId ?? msg.getHeaderValue('message-id');
-    final inReplyTo =
-        envelope?.inReplyTo ?? msg.getHeaderValue('in-reply-to');
+    final messageId = envelope?.messageId ?? msg.getHeaderValue('message-id');
+    final inReplyTo = envelope?.inReplyTo ?? msg.getHeaderValue('in-reply-to');
     final referencesRaw = msg.getHeaderValue('references') ?? '';
     final references = referencesRaw
         .split(RegExp(r'\s+'))
@@ -431,8 +475,8 @@ class ImapService {
           final part = msg.getPart(info.fetchId);
           return Attachment(
             filename: info.fileName ?? 'attachment',
-            mimeType: info.contentType?.mediaType.text ??
-                'application/octet-stream',
+            mimeType:
+                info.contentType?.mediaType.text ?? 'application/octet-stream',
             size: info.size ?? 0,
             contentId: info.cid,
             isInline: false,
@@ -440,20 +484,22 @@ class ImapService {
           );
         }),
         ...inlineInfos
-            .where((info) =>
-                info.contentType?.mediaType.text.startsWith('image/') ??
-                false)
+            .where(
+              (info) =>
+                  info.contentType?.mediaType.text.startsWith('image/') ??
+                  false,
+            )
             .map((info) {
-          final part = msg.getPart(info.fetchId);
-          return Attachment(
-            filename: info.fileName ?? 'inline-image',
-            mimeType: info.contentType?.mediaType.text ?? 'image/png',
-            size: info.size ?? 0,
-            contentId: info.cid,
-            isInline: true,
-            data: part?.decodeContentBinary(),
-          );
-        }),
+              final part = msg.getPart(info.fetchId);
+              return Attachment(
+                filename: info.fileName ?? 'inline-image',
+                mimeType: info.contentType?.mediaType.text ?? 'image/png',
+                size: info.size ?? 0,
+                contentId: info.cid,
+                isInline: true,
+                data: part?.decodeContentBinary(),
+              );
+            }),
       ];
     } else {
       parsedAttachments = const [];
@@ -490,10 +536,7 @@ class ImapService {
   List<EmailAddress> _convertAddresses(List<imap.MailAddress>? addresses) {
     if (addresses == null || addresses.isEmpty) return [];
     return addresses.map((a) {
-      return EmailAddress(
-        address: a.email,
-        displayName: a.personalName,
-      );
+      return EmailAddress(address: a.email, displayName: a.personalName);
     }).toList();
   }
 
@@ -512,9 +555,7 @@ class ImapService {
 
   /// Create a short snippet from plain text (~140 chars).
   String _makeSnippet(String text) {
-    final cleaned = text
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
+    final cleaned = text.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (cleaned.length <= 140) return cleaned;
     return '${cleaned.substring(0, 140)}…';
   }

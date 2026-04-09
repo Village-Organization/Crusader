@@ -5,6 +5,8 @@
 /// Dark-mode first. Glassmorphism. Zero bloat.
 library;
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -12,10 +14,12 @@ import 'core/di/router.dart';
 import 'core/di/theme_provider.dart';
 import 'core/theme/theme.dart';
 import 'data/datasources/notification_service.dart';
+import 'data/datasources/system_tray_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await NotificationService.instance.init();
+  await SystemTrayService.instance.init(onQuit: () => exit(0));
   runApp(const ProviderScope(child: CrusaderApp()));
 }
 

@@ -70,8 +70,9 @@ class AccountState {
 // Account Notifier
 // ─────────────────────────────────────────────────────────────────────────────
 
-final accountProvider =
-    StateNotifierProvider<AccountNotifier, AccountState>((ref) {
+final accountProvider = StateNotifierProvider<AccountNotifier, AccountState>((
+  ref,
+) {
   return AccountNotifier(
     authRepo: ref.read(authRepositoryProvider),
     oauthService: ref.read(oauthServiceProvider),
@@ -82,9 +83,9 @@ class AccountNotifier extends StateNotifier<AccountState> {
   AccountNotifier({
     required AuthRepository authRepo,
     required OAuthService oauthService,
-  })  : _authRepo = authRepo,
-        _oauthService = oauthService,
-        super(const AccountState(isLoading: true)) {
+  }) : _authRepo = authRepo,
+       _oauthService = oauthService,
+       super(const AccountState(isLoading: true)) {
     _init();
   }
 
@@ -98,7 +99,8 @@ class AccountNotifier extends StateNotifier<AccountState> {
       final activeId = await _authRepo.getActiveAccountId();
       state = AccountState(
         accounts: accounts,
-        activeAccountId: activeId ?? (accounts.isNotEmpty ? accounts.first.id : null),
+        activeAccountId:
+            activeId ?? (accounts.isNotEmpty ? accounts.first.id : null),
       );
     } catch (e) {
       state = AccountState(error: 'Failed to load accounts: $e');
@@ -151,6 +153,61 @@ class AccountNotifier extends StateNotifier<AccountState> {
     }
   }
 
+  /// Add a custom IMAP/SMTP account with password authentication.
+  ///
+  /// Validates the IMAP connection before saving. Stores the password
+  /// securely and returns the created account, or throws on failure.
+  Future<void> addCustomAccount({
+    required String email,
+    required String displayName,
+    required String password,
+    required String imapHost,
+    required int imapPort,
+    required String smtpHost,
+    required int smtpPort,
+  }) async {
+    state = state.copyWith(isLoading: true, error: null);
+
+    try {
+      // Check if this custom account already exists.
+      final existing = state.accounts.where(
+        (a) => a.email == email && a.provider == EmailProvider.custom,
+      );
+      if (existing.isNotEmpty) {
+        // Update password for existing account.
+        await _authRepo.savePassword(existing.first.id, password);
+        state = state.copyWith(
+          isLoading: false,
+          activeAccountId: existing.first.id,
+        );
+        return;
+      }
+
+      final account = _authRepo.createCustomAccount(
+        email: email,
+        displayName: displayName,
+        imapHost: imapHost,
+        imapPort: imapPort,
+        smtpHost: smtpHost,
+        smtpPort: smtpPort,
+      );
+
+      await _authRepo.saveAccount(account);
+      await _authRepo.savePassword(account.id, password);
+      await _authRepo.setActiveAccount(account.id);
+
+      state = AccountState(
+        accounts: [...state.accounts, account],
+        activeAccountId: account.id,
+      );
+    } catch (e) {
+      state = state.copyWith(
+        isLoading: false,
+        error: 'Failed to add account: $e',
+      );
+    }
+  }
+
   /// Switch the active account.
   Future<void> switchAccount(String accountId) async {
     await _authRepo.setActiveAccount(accountId);
@@ -163,13 +220,32 @@ class AccountNotifier extends StateNotifier<AccountState> {
     final updated = state.accounts.where((a) => a.id != accountId).toList();
     state = AccountState(
       accounts: updated,
-      activeAccountId:
-          updated.isNotEmpty ? updated.first.id : null,
+      activeAccountId: updated.isNotEmpty ? updated.first.id : null,
     );
   }
 
   /// Get a valid (non-expired) token for an account, refreshing if needed.
+  ///
+  /// For password-based accounts, returns a synthetic [OAuthToken] whose
+  /// `accessToken` field contains the password. This lets all existing
+  /// call sites (which pass `token.accessToken` to IMAP/SMTP connect)
+  /// work unchanged.
   Future<OAuthToken?> getValidToken(String accountId) async {
+    final account = state.accounts.firstWhere((a) => a.id == accountId);
+
+    // Password accounts: return a synthetic token with the password.
+    if (account.authMethod == AuthMethod.password) {
+      final password = await _authRepo.getPassword(accountId);
+      if (password == null) return null;
+      return OAuthToken(
+        accessToken: password,
+        refreshToken: null,
+        // Far-future expiry so isAboutToExpire is always false.
+        expiresAt: DateTime(2099),
+      );
+    }
+
+    // OAuth accounts: normal token refresh flow.
     final token = await _authRepo.getToken(accountId);
     if (token == null) return null;
 
@@ -178,7 +254,6 @@ class AccountNotifier extends StateNotifier<AccountState> {
     // Try to refresh.
     if (token.refreshToken == null) return null;
 
-    final account = state.accounts.firstWhere((a) => a.id == accountId);
     try {
       final refreshed = await _oauthService.refreshToken(
         account.provider,

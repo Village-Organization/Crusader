@@ -80,6 +80,17 @@ class EmailRepository {
     }
   }
 
+  /// Create a new folder/mailbox on the IMAP server and re-sync mailbox list.
+  Future<List<Mailbox>> createFolder({
+    required EmailAccount account,
+    required String accessToken,
+    required String folderName,
+  }) async {
+    await _imap.connect(account: account, accessToken: accessToken);
+    await _imap.createMailbox(accountId: account.id, path: folderName);
+    return syncMailboxes(account: account, accessToken: accessToken);
+  }
+
   // ── Email Operations ──────────────────────────────────────────────────
 
   /// Get cached emails for a mailbox, grouped into threads.
@@ -149,6 +160,25 @@ class EmailRepository {
           mailboxPath: mailboxPath,
           sinceUid: lastUid,
         );
+
+        // Also refresh flags for previously-synced messages so that
+        // flag changes (starred, read, etc.) made externally are picked up.
+        try {
+          final flagMap = await _imap.fetchFlags(
+            accountId: account.id,
+            mailboxPath: mailboxPath,
+            fromUid: 1,
+            toUid: lastUid,
+          );
+          if (flagMap.isNotEmpty) {
+            final encodedFlags = flagMap.map(
+              (uid, flags) => MapEntry(uid, _encodeFlags(flags)),
+            );
+            await _db.bulkUpdateFlags(account.id, mailboxPath, encodedFlags);
+          }
+        } catch (_) {
+          // Non-fatal: flag refresh failure shouldn't block sync.
+        }
       } else {
         // Initial sync — fetch recent batch.
         emails = await _imap.fetchEnvelopes(
@@ -159,8 +189,23 @@ class EmailRepository {
       }
 
       if (emails.isNotEmpty) {
+        // Preserve existing local IDs to prevent duplicate rows.
+        final resolved = <EmailMessage>[];
+        for (final email in emails) {
+          final existing = await _db.getEmailByUid(
+            account.id,
+            mailboxPath,
+            email.uid,
+          );
+          if (existing != null) {
+            resolved.add(email.copyWith(id: existing.id));
+          } else {
+            resolved.add(email);
+          }
+        }
+
         // Cache to Drift.
-        final companions = emails.map(_emailToCompanion).toList();
+        final companions = resolved.map(_emailToCompanion).toList();
         await _db.upsertEmails(companions);
 
         // Update sync state.
@@ -584,12 +629,18 @@ class EmailRepository {
 
   Set<EmailFlag> _decodeFlags(String flags) {
     if (flags.isEmpty) return {};
-    return flags.split(',').map((f) {
-      return EmailFlag.values.firstWhere(
-        (e) => e.name == f,
-        orElse: () => EmailFlag.seen,
-      );
-    }).toSet();
+    final result = <EmailFlag>{};
+    for (final f in flags.split(',')) {
+      final trimmed = f.trim();
+      if (trimmed.isEmpty) continue;
+      for (final flag in EmailFlag.values) {
+        if (flag.name == trimmed) {
+          result.add(flag);
+          break;
+        }
+      }
+    }
+    return result;
   }
 
   String _addFlag(String flags, String flag) {

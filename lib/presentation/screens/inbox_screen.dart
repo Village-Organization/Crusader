@@ -26,6 +26,7 @@ import '../../features/auth/auth_providers.dart';
 import '../../features/inbox/inbox_providers.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panel.dart';
+import '../widgets/glass_toast.dart';
 import '../widgets/snooze_picker.dart';
 import '../widgets/thread_tile.dart';
 import 'thread_detail_screen.dart';
@@ -111,7 +112,9 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
         // In master-detail, auto-open.
         final screenWidth = MediaQuery.of(context).size.width;
         if (screenWidth >= AppConstants.desktopBreakpoint) {
-          ref.read(inboxProvider.notifier).markThreadAsRead(threads[_focusedIndex]);
+          ref
+              .read(inboxProvider.notifier)
+              .markThreadAsRead(threads[_focusedIndex]);
         }
         return KeyEventResult.handled;
 
@@ -125,7 +128,9 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
         _ensureVisible(_focusedIndex);
         final w = MediaQuery.of(context).size.width;
         if (w >= AppConstants.desktopBreakpoint) {
-          ref.read(inboxProvider.notifier).markThreadAsRead(threads[_focusedIndex]);
+          ref
+              .read(inboxProvider.notifier)
+              .markThreadAsRead(threads[_focusedIndex]);
         }
         return KeyEventResult.handled;
 
@@ -170,12 +175,11 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
         final thread = _focusedThread;
         if (thread != null) {
           ref.read(inboxProvider.notifier).archiveThread(thread);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Archived'),
-              backgroundColor: CrusaderBlacks.elevated,
-              duration: const Duration(seconds: 2),
-            ),
+          CrusaderToast.withUndo(
+            context,
+            'Archived',
+            icon: Icons.archive_outlined,
+            onUndo: () => ref.read(inboxProvider.notifier).syncInbox(),
           );
         }
         return KeyEventResult.handled;
@@ -199,12 +203,10 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
           showSnoozePicker(context).then((until) {
             if (until != null && mounted) {
               ref.read(inboxProvider.notifier).snoozeThread(thread, until);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text('Snoozed'),
-                  backgroundColor: CrusaderBlacks.elevated,
-                  duration: const Duration(seconds: 2),
-                ),
+              CrusaderToast.success(
+                context,
+                'Snoozed',
+                icon: Icons.snooze_rounded,
               );
             }
           });
@@ -216,12 +218,11 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
           final thread = _focusedThread;
           if (thread != null) {
             ref.read(inboxProvider.notifier).moveThreadToTrash(thread);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: const Text('Moved to Trash'),
-                backgroundColor: CrusaderBlacks.elevated,
-                duration: const Duration(seconds: 2),
-              ),
+            CrusaderToast.withUndo(
+              context,
+              'Moved to Trash',
+              icon: Icons.delete_outline_rounded,
+              onUndo: () => ref.read(inboxProvider.notifier).syncInbox(),
             );
           }
           return KeyEventResult.handled;
@@ -345,10 +346,7 @@ class _MasterDetailLayoutState extends State<_MasterDetailLayout> {
     return Row(
       children: [
         // ── List pane ──
-        SizedBox(
-          width: _listWidth,
-          child: widget.listPane,
-        ),
+        SizedBox(width: _listWidth, child: widget.listPane),
 
         // ── Draggable divider ──
         MouseRegion(
@@ -357,8 +355,10 @@ class _MasterDetailLayoutState extends State<_MasterDetailLayout> {
             onHorizontalDragStart: (_) => setState(() => _isDragging = true),
             onHorizontalDragUpdate: (details) {
               setState(() {
-                _listWidth = (_listWidth + details.delta.dx)
-                    .clamp(_minListWidth, _maxListWidth);
+                _listWidth = (_listWidth + details.delta.dx).clamp(
+                  _minListWidth,
+                  _maxListWidth,
+                );
               });
             },
             onHorizontalDragEnd: (_) => setState(() => _isDragging = false),
@@ -419,16 +419,12 @@ class _DetailPlaceholder extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             'Select an email',
-            style: textTheme.bodyLarge?.copyWith(
-              color: CrusaderGrays.muted,
-            ),
+            style: textTheme.bodyLarge?.copyWith(color: CrusaderGrays.muted),
           ),
           const SizedBox(height: 4),
           Text(
             'Choose a conversation to read',
-            style: textTheme.bodySmall?.copyWith(
-              color: CrusaderGrays.subtle,
-            ),
+            style: textTheme.bodySmall?.copyWith(color: CrusaderGrays.subtle),
           ),
         ],
       ).animate().fadeIn(duration: 500.ms),
@@ -471,50 +467,52 @@ class _InboxListPane extends ConsumerWidget {
         // ── Header ──
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
-          child: Row(
-            children: [
-              if (inboxState.isUnifiedInbox) ...[
-                Icon(
-                  Icons.all_inbox_rounded,
-                  size: 22,
-                  color: accents.primary,
-                ),
-                const SizedBox(width: 8),
-              ],
-              Text(
-                inboxState.isUnifiedInbox ? 'All Inboxes' : 'Inbox',
-                style: textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.5,
-              )),
-              if (inboxState.unreadCount > 0) ...[
-                const SizedBox(width: 10),
-                GlassBadge(
-                  count: inboxState.unreadCount,
-                  color: accents.primary,
-                ),
-              ],
-              const Spacer(),
-              if (inboxState.isSyncing)
-                SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation(accents.primary),
-                  ),
-                )
-              else
-                GlassIconButton(
-                  icon: Icons.refresh_rounded,
-                  onPressed: onRefresh,
-                  tooltip: 'Refresh',
-                ),
-            ],
-          )
-              .animate()
-              .fadeIn(duration: 350.ms)
-              .slideY(begin: -0.04, end: 0, duration: 350.ms),
+          child:
+              Row(
+                    children: [
+                      if (inboxState.isUnifiedInbox) ...[
+                        Icon(
+                          Icons.all_inbox_rounded,
+                          size: 22,
+                          color: accents.primary,
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      Text(
+                        inboxState.isUnifiedInbox ? 'All Inboxes' : 'Inbox',
+                        style: textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                      if (inboxState.unreadCount > 0) ...[
+                        const SizedBox(width: 10),
+                        GlassBadge(
+                          count: inboxState.unreadCount,
+                          color: accents.primary,
+                        ),
+                      ],
+                      const Spacer(),
+                      if (inboxState.isSyncing)
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation(accents.primary),
+                          ),
+                        )
+                      else
+                        GlassIconButton(
+                          icon: Icons.refresh_rounded,
+                          onPressed: onRefresh,
+                          tooltip: 'Refresh',
+                        ),
+                    ],
+                  )
+                  .animate()
+                  .fadeIn(duration: 350.ms)
+                  .slideY(begin: -0.04, end: 0, duration: 350.ms),
         ),
 
         const SizedBox(height: 12),
@@ -533,9 +531,7 @@ class _InboxListPane extends ConsumerWidget {
         const SizedBox(height: 4),
 
         // ── Content ──
-        Expanded(
-          child: _buildContent(context, ref),
-        ),
+        Expanded(child: _buildContent(context, ref)),
       ],
     );
   }
@@ -559,9 +555,9 @@ class _InboxListPane extends ConsumerWidget {
       return ListView.builder(
         padding: const EdgeInsets.only(top: 8, bottom: 80),
         itemCount: 8,
-        itemBuilder: (context, index) => ThreadTileSkeleton(index: index)
-            .animate(delay: (index * 40).ms)
-            .fadeIn(duration: 300.ms),
+        itemBuilder: (context, index) => ThreadTileSkeleton(
+          index: index,
+        ).animate(delay: (index * 40).ms).fadeIn(duration: 300.ms),
       );
     }
 
@@ -579,16 +575,12 @@ class _InboxListPane extends ConsumerWidget {
       );
     }
 
-    // No emails.
+    // No emails — Inbox Zero celebration!
     if (inboxState.threads.isEmpty) {
-      return _EmptyState(
-        icon: Icons.inbox_rounded,
-        title: 'No emails yet',
-        subtitle: 'Pull to refresh or wait for new messages.',
-        actionLabel: 'Refresh',
-        onAction: onRefresh,
+      return _InboxZeroCelebration(
         accents: accents,
         textTheme: textTheme,
+        onRefresh: onRefresh,
       );
     }
 
@@ -626,6 +618,35 @@ class _InboxListPane extends ConsumerWidget {
             animationDelay: Duration(milliseconds: (index * 25).clamp(0, 250)),
             onTap: () => onTapThread(thread),
             onFlagToggle: () => onFlagThread(thread),
+            onArchive: () {
+              ref.read(inboxProvider.notifier).archiveThread(thread);
+              CrusaderToast.withUndo(
+                context,
+                'Archived',
+                icon: Icons.archive_outlined,
+                onUndo: () => ref.read(inboxProvider.notifier).syncInbox(),
+              );
+            },
+            onDelete: () {
+              ref.read(inboxProvider.notifier).moveThreadToTrash(thread);
+              CrusaderToast.withUndo(
+                context,
+                'Moved to Trash',
+                icon: Icons.delete_outline_rounded,
+                onUndo: () => ref.read(inboxProvider.notifier).syncInbox(),
+              );
+            },
+            onSnooze: () async {
+              final until = await showSnoozePicker(context);
+              if (until != null && context.mounted) {
+                ref.read(inboxProvider.notifier).snoozeThread(thread, until);
+                CrusaderToast.success(
+                  context,
+                  'Snoozed',
+                  icon: Icons.snooze_rounded,
+                );
+              }
+            },
             onSecondaryTap: (position) =>
                 _showThreadContextMenu(context, ref, position, thread),
           );
@@ -734,12 +755,12 @@ class _InboxListPane extends ConsumerWidget {
         } else {
           ref.read(inboxProvider.notifier).markThreadAsUnread(thread);
         }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(thread.hasUnread ? 'Marked as read' : 'Marked as unread'),
-            backgroundColor: CrusaderBlacks.elevated,
-            duration: const Duration(seconds: 2),
-          ),
+        CrusaderToast.info(
+          context,
+          thread.hasUnread ? 'Marked as read' : 'Marked as unread',
+          icon: thread.hasUnread
+              ? Icons.mark_email_read_outlined
+              : Icons.mark_email_unread_outlined,
         );
         break;
       case 'flag':
@@ -749,33 +770,25 @@ class _InboxListPane extends ConsumerWidget {
         final until = await showSnoozePicker(context);
         if (until != null && context.mounted) {
           ref.read(inboxProvider.notifier).snoozeThread(thread, until);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Snoozed'),
-              backgroundColor: CrusaderBlacks.elevated,
-              duration: const Duration(seconds: 2),
-            ),
-          );
+          CrusaderToast.success(context, 'Snoozed', icon: Icons.snooze_rounded);
         }
         break;
       case 'archive':
         ref.read(inboxProvider.notifier).archiveThread(thread);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Archived'),
-            backgroundColor: CrusaderBlacks.elevated,
-            duration: const Duration(seconds: 2),
-          ),
+        CrusaderToast.withUndo(
+          context,
+          'Archived',
+          icon: Icons.archive_outlined,
+          onUndo: () => ref.read(inboxProvider.notifier).syncInbox(),
         );
         break;
       case 'delete':
         ref.read(inboxProvider.notifier).moveThreadToTrash(thread);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Moved to Trash'),
-            backgroundColor: CrusaderBlacks.elevated,
-            duration: const Duration(seconds: 2),
-          ),
+        CrusaderToast.withUndo(
+          context,
+          'Moved to Trash',
+          icon: Icons.delete_outline_rounded,
+          onUndo: () => ref.read(inboxProvider.notifier).syncInbox(),
         );
         break;
     }
@@ -798,19 +811,13 @@ class _InboxListPane extends ConsumerWidget {
           Expanded(
             child: Text(
               label,
-              style: TextStyle(
-                color: CrusaderGrays.primary,
-                fontSize: 13,
-              ),
+              style: TextStyle(color: CrusaderGrays.primary, fontSize: 13),
             ),
           ),
           if (shortcut != null)
             Text(
               shortcut,
-              style: TextStyle(
-                color: CrusaderGrays.muted,
-                fontSize: 11,
-              ),
+              style: TextStyle(color: CrusaderGrays.muted, fontSize: 11),
             ),
         ],
       ),
@@ -851,64 +858,247 @@ class _EmptyState extends StatelessWidget {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(20),
-        child: GlassPanel(
-          padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 40),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 60,
-                height: 60,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    colors: [
-                      iconColor.withValues(alpha: 0.18),
-                      bgColor.withValues(alpha: 0.08),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
+        child:
+            GlassPanel(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 48,
+                    horizontal: 40,
                   ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: LinearGradient(
+                            colors: [
+                              iconColor.withValues(alpha: 0.18),
+                              bgColor.withValues(alpha: 0.08),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                        ),
+                        child: Icon(icon, size: 26, color: iconColor),
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        title,
+                        style: textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        subtitle,
+                        style: textTheme.bodyMedium?.copyWith(
+                          color: CrusaderGrays.secondary,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton.icon(
+                        onPressed: onAction,
+                        icon: Icon(
+                          isError ? Icons.refresh_rounded : Icons.add_rounded,
+                          size: 16,
+                        ),
+                        label: Text(actionLabel),
+                      ),
+                    ],
+                  ),
+                )
+                .animate()
+                .fadeIn(duration: 500.ms, delay: 150.ms)
+                .scale(
+                  begin: const Offset(0.97, 0.97),
+                  end: const Offset(1, 1),
+                  duration: 500.ms,
+                  delay: 150.ms,
+                  curve: Curves.easeOutCubic,
                 ),
-                child: Icon(icon, size: 26, color: iconColor),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inbox Zero Celebration — delightful "all caught up" state
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _InboxZeroCelebration extends StatelessWidget {
+  const _InboxZeroCelebration({
+    required this.accents,
+    required this.textTheme,
+    required this.onRefresh,
+  });
+
+  final CrusaderAccentTheme accents;
+  final TextTheme textTheme;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ── Animated gradient ring with checkmark ──
+            _GlowingCheckmark(accents: accents)
+                .animate()
+                .fadeIn(duration: 600.ms, delay: 100.ms)
+                .scale(
+                  begin: const Offset(0.6, 0.6),
+                  end: const Offset(1, 1),
+                  duration: 700.ms,
+                  delay: 100.ms,
+                  curve: Curves.easeOutBack,
+                ),
+
+            const SizedBox(height: 28),
+
+            // ── Title ──
+            Text(
+                  'You\'re all caught up',
+                  style: textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.5,
+                  ),
+                )
+                .animate()
+                .fadeIn(duration: 500.ms, delay: 350.ms)
+                .slideY(begin: 0.1, end: 0, duration: 500.ms, delay: 350.ms),
+
+            const SizedBox(height: 8),
+
+            // ── Subtitle ──
+            Text(
+                  'Nothing to see here. Go enjoy your day.',
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: CrusaderGrays.secondary,
+                  ),
+                  textAlign: TextAlign.center,
+                )
+                .animate()
+                .fadeIn(duration: 500.ms, delay: 500.ms)
+                .slideY(begin: 0.08, end: 0, duration: 500.ms, delay: 500.ms),
+
+            const SizedBox(height: 32),
+
+            // ── Refresh button ──
+            TextButton.icon(
+              onPressed: onRefresh,
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('Check for new mail'),
+              style: TextButton.styleFrom(
+                foregroundColor: accents.primary,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
               ),
-              const SizedBox(height: 20),
-              Text(
-                title,
-                style: textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
+            ).animate().fadeIn(duration: 400.ms, delay: 700.ms),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Animated checkmark with gradient glow ring.
+class _GlowingCheckmark extends StatefulWidget {
+  const _GlowingCheckmark({required this.accents});
+
+  final CrusaderAccentTheme accents;
+
+  @override
+  State<_GlowingCheckmark> createState() => _GlowingCheckmarkState();
+}
+
+class _GlowingCheckmarkState extends State<_GlowingCheckmark>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _pulseController;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2500),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _pulseController,
+      builder: (context, child) {
+        final pulse = 0.5 + 0.5 * _pulseController.value;
+        return Container(
+          width: 80,
+          height: 80,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(
+              colors: [
+                widget.accents.primary.withValues(alpha: 0.15 * pulse),
+                widget.accents.secondary.withValues(alpha: 0.08 * pulse),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: widget.accents.primaryGlow.withValues(
+                  alpha: 0.2 * pulse,
                 ),
+                blurRadius: 30,
+                spreadRadius: -5,
               ),
-              const SizedBox(height: 8),
-              Text(
-                subtitle,
-                style: textTheme.bodyMedium?.copyWith(
-                  color: CrusaderGrays.secondary,
+              BoxShadow(
+                color: widget.accents.secondaryGlow.withValues(
+                  alpha: 0.1 * pulse,
                 ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton.icon(
-                onPressed: onAction,
-                icon: Icon(
-                  isError ? Icons.refresh_rounded : Icons.add_rounded,
-                  size: 16,
-                ),
-                label: Text(actionLabel),
+                blurRadius: 40,
+                spreadRadius: -10,
               ),
             ],
           ),
-        )
-            .animate()
-            .fadeIn(duration: 500.ms, delay: 150.ms)
-            .scale(
-              begin: const Offset(0.97, 0.97),
-              end: const Offset(1, 1),
-              duration: 500.ms,
-              delay: 150.ms,
-              curve: Curves.easeOutCubic,
+          child: Container(
+            margin: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: [
+                  widget.accents.primary.withValues(alpha: 0.12),
+                  widget.accents.secondary.withValues(alpha: 0.06),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              border: Border.all(
+                color: widget.accents.primary.withValues(alpha: 0.2),
+                width: 1.5,
+              ),
             ),
-      ),
+            child: Icon(
+              Icons.check_rounded,
+              size: 32,
+              color: widget.accents.primary,
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -1007,8 +1197,8 @@ class _FilterChipState extends State<_FilterChip> {
             color: widget.isActive
                 ? widget.accents.primary.withValues(alpha: 0.15)
                 : _isHovered
-                    ? CrusaderGrays.border.withValues(alpha: 0.3)
-                    : Colors.transparent,
+                ? CrusaderGrays.border.withValues(alpha: 0.3)
+                : Colors.transparent,
             border: Border.all(
               color: widget.isActive
                   ? widget.accents.primary.withValues(alpha: 0.4)
@@ -1033,8 +1223,9 @@ class _FilterChipState extends State<_FilterChip> {
                   color: widget.isActive
                       ? widget.accents.primary
                       : CrusaderGrays.secondary,
-                  fontWeight:
-                      widget.isActive ? FontWeight.w600 : FontWeight.w400,
+                  fontWeight: widget.isActive
+                      ? FontWeight.w600
+                      : FontWeight.w400,
                   fontSize: 11,
                 ),
               ),
